@@ -31,9 +31,12 @@ add_library(gca_core STATIC
     src/dialect.cpp
     src/knowledge.cpp
     src/modal_state.cpp
+    src/motion.cpp
     src/report.cpp
     src/analyzers/code_stats.cpp
     src/analyzers/tools.cpp
+    src/analyzers/time.cpp
+    src/analyzers/bbox.cpp
 )
 target_include_directories(gca_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(gca_core PUBLIC GCA_VERSION="${PROJECT_VERSION}")

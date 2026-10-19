@@ -12,6 +12,8 @@ add_executable(gca_tests
     test_lexer.cpp
     test_modal.cpp
     test_samples_stage1.cpp
+    test_geometry.cpp
+    test_time_bbox.cpp
 )
 target_link_libraries(gca_tests PRIVATE gca_core gca_warnings Catch2::Catch2WithMain)
 # Tests can locate sample programs via this define

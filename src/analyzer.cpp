@@ -1,6 +1,8 @@
 #include "gca/analyzer.hpp"
 
 #include "gca/analyzers/code_stats.hpp"
+#include "gca/analyzers/bbox.hpp"
+#include "gca/analyzers/time.hpp"
 #include "gca/analyzers/tools.hpp"
 #include "gca/knowledge.hpp"
 #include "gca/modal_state.hpp"
@@ -84,6 +86,8 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
 
     AnalyzerList analyzers;
     analyzers.push_back(std::make_unique<ToolsAnalyzer>());
+    analyzers.push_back(std::make_unique<TimeAnalyzer>(options.rapidFeedMmPerMin));
+    analyzers.push_back(std::make_unique<BBoxAnalyzer>());
     analyzers.push_back(std::make_unique<CodeStatsAnalyzer>(knowledge, report.file.dialectId));
 
     ModalMachine machineState(profile);
