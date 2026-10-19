@@ -95,10 +95,11 @@ jobs:
           Get-ChildItem $app.FullName -Recurse -File | Select-Object FullName, Length
           if (Get-ChildItem $app.FullName -Recurse -Include *.pdb) { throw 'pdb in package' }
       - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         with:
           name: gcode-analyzer-win-x64
           path: dist/*.zip
-          retention-days: 30
+          retention-days: 7
       - name: GitHub Release (tag v*)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
