@@ -12,3 +12,4 @@ Testing/
 # .NET
 bin/
 obj/
+dist/
