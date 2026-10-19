@@ -1,3 +1,6 @@
 * text=auto
 # Samples must stay byte-identical (CRLF line endings preserved)
 samples/** -text
+# Test inputs and golden reports must be byte-identical on every platform (LF)
+tests/data/** -text
+tests/golden/** -text
