@@ -245,6 +245,16 @@ void writeTextReport(const Report& r, std::ostream& out) {
         if (!w.text.empty()) out << "      " << w.text << '\n';
     }
 
+    heading(out, "Шпаргалка для постпроцессора");
+    out << "  Выведена из анализа программы, не из справочника: каждое утверждение относится к этому файлу.\n";
+    for (const auto& sec : r.cheatSheet) {
+        out << "\n  --- " << sec.title << " ---\n";
+        for (const auto& line : sec.lines) {
+            if (line.empty()) out << '\n';
+            else out << "  " << line << '\n';
+        }
+    }
+
     if (!r.diagnostics.empty()) {
         heading(out, "Диагностика лексера");
         for (const auto& d : r.diagnostics) out << "  " << d << '\n';

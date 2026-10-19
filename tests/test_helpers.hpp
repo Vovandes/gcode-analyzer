@@ -62,3 +62,21 @@ inline std::size_t countWarnings(const Report& r, const char* code) {
 inline bool hasWarning(const Report& r, const char* code) { return countWarnings(r, code) > 0; }
 
 } // namespace gca::test
+
+namespace gca::test {
+
+/// All cheat-sheet lines of one section (title prefix match) joined with '\n'.
+inline std::string cheatSection(const Report& r, const std::string& titlePrefix) {
+    for (const auto& s : r.cheatSheet) {
+        if (s.title.rfind(titlePrefix, 0) == 0) {
+            std::string out;
+            for (const auto& l : s.lines) out += l + "\n";
+            return out;
+        }
+    }
+    return {};
+}
+
+inline bool contains(const std::string& text, const std::string& part) { return text.find(part) != std::string::npos; }
+
+} // namespace gca::test
