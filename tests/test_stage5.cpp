@@ -107,7 +107,7 @@ TEST_CASE("CLI: --out writes a full report file and prints only a short message"
     std::filesystem::remove(file);
     const auto r = cli({samplePath("sample-01-skymaster-vl1100a.nc"), "--out", file.string()});
     CHECK(r.code == 0);
-    CHECK(r.out.find("Report written") != std::string::npos);
+    CHECK(r.out.find("Отчёт записан") != std::string::npos);
     CHECK(r.out.find("== Время") == std::string::npos);
     REQUIRE(std::filesystem::exists(file));
     const std::string text = readFile(file);

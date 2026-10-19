@@ -23,13 +23,14 @@ struct OutputOptions {
 struct AnalysisOptions {
     std::string dialect = "fanuc-mill"; ///< dialect/profile id
     double rapidFeedMmPerMin = 10000.0; ///< G0 rate for time estimate
+    std::string machine = "auto";       ///< machine profile id, "auto" = detect by "Generated for ..."
 };
 
 /// Input file cannot be read.
 struct IoError : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
-/// Bad options (unknown dialect, non-positive rapid feed).
+/// Bad options (unknown dialect or machine, non-positive rapid feed).
 struct OptionError : std::invalid_argument {
     using std::invalid_argument::invalid_argument;
 };

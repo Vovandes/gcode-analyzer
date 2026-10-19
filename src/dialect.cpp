@@ -261,6 +261,13 @@ const IDialect* findDialect(std::string_view id) {
 
 std::vector<std::string> dialectIds() { return {std::string(fanucMill().id())}; }
 
+const MachineProfile* findMachine(const IDialect& dialect, std::string_view id) {
+    for (const auto& m : dialect.machines()) {
+        if (m.id == id) return &m;
+    }
+    return nullptr;
+}
+
 const MachineProfile* detectMachine(const IDialect& dialect, std::string_view headerText) {
     const std::string s = squash(headerText);
     for (const auto& m : dialect.machines()) {
