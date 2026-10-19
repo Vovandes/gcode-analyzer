@@ -12,12 +12,17 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(GCA_BUILD_TESTS "Build unit tests (Catch2 via FetchContent)" ON)
 
+# Source and execution charset UTF-8 for every target (including tests and future ones)
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 # ---------------------------------------------------------------------------
 # Warnings
 # ---------------------------------------------------------------------------
 add_library(gca_warnings INTERFACE)
 if(MSVC)
-    target_compile_options(gca_warnings INTERFACE /W4 /permissive- /utf-8 /EHsc)
+    target_compile_options(gca_warnings INTERFACE /W4 /permissive- /EHsc)
 else()
     target_compile_options(gca_warnings INTERFACE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
 endif()
@@ -34,6 +39,7 @@ add_library(gca_core STATIC
     src/modal_state.cpp
     src/motion.cpp
     src/report.cpp
+    src/options.cpp
     src/analyzers/code_stats.cpp
     src/analyzers/tools.cpp
     src/analyzers/time.cpp
@@ -53,6 +59,9 @@ target_link_libraries(gca_core PRIVATE gca_warnings)
 # ---------------------------------------------------------------------------
 add_executable(gcode-analyzer src/main.cpp)
 target_link_libraries(gcode-analyzer PRIVATE gca_core gca_warnings)
+if(WIN32)
+    target_link_libraries(gcode-analyzer PRIVATE shell32)   # CommandLineToArgvW (UTF-8 arguments)
+endif()
 
 # ---------------------------------------------------------------------------
 # Tests
