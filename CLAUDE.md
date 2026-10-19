@@ -16,7 +16,7 @@ cmake --build --preset debug
 ctest --preset debug
 ```
 
-Windows (MSVC, Visual Studio 2022):
+Windows (MSVC, Visual Studio 2022 или новее; генератор — самая новая установленная VS):
 ```bat
 cmake --preset msvc
 cmake --build --preset msvc-debug
