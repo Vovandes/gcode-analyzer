@@ -1,0 +1,3 @@
+* text=auto
+# Samples must stay byte-identical (CRLF line endings preserved)
+samples/** -text

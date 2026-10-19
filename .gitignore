@@ -1,0 +1,10 @@
+build/
+out/
+.vs/
+.vscode/
+.idea/
+CMakeUserPresets.json
+*.user
+compile_commands.json
+report*.txt
+Testing/
