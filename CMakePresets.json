@@ -1,0 +1,46 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "GCA_BUILD_TESTS": "ON" }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug (Ninja, GCC/Clang)",
+      "inherits": "base",
+      "generator": "Ninja",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "release",
+      "displayName": "Release (Ninja, GCC/Clang)",
+      "inherits": "base",
+      "generator": "Ninja",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "msvc",
+      "displayName": "Visual Studio 2022 (MSVC, x64)",
+      "inherits": "base",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "debug",        "configurePreset": "debug" },
+    { "name": "release",      "configurePreset": "release" },
+    { "name": "msvc-debug",   "configurePreset": "msvc", "configuration": "Debug" },
+    { "name": "msvc-release", "configurePreset": "msvc", "configuration": "Release" }
+  ],
+  "testPresets": [
+    { "name": "debug",        "configurePreset": "debug",   "output": { "outputOnFailure": true } },
+    { "name": "release",      "configurePreset": "release", "output": { "outputOnFailure": true } },
+    { "name": "msvc-debug",   "configurePreset": "msvc", "configuration": "Debug",   "output": { "outputOnFailure": true } },
+    { "name": "msvc-release", "configurePreset": "msvc", "configuration": "Release", "output": { "outputOnFailure": true } }
+  ]
+}
