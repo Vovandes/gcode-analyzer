@@ -27,6 +27,7 @@ endif()
 # ---------------------------------------------------------------------------
 add_library(gca_core STATIC
     src/analyzer.cpp
+    src/cli.cpp
     src/lexer.cpp
     src/dialect.cpp
     src/knowledge.cpp
