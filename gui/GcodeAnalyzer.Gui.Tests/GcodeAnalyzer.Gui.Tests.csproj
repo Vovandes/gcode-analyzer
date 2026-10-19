@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Проект GUI целится в net8.0-windows, поэтому тесты тоже -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GcodeAnalyzer.Gui\GcodeAnalyzer.Gui.csproj" />
+  </ItemGroup>
+
+  <!-- Эталонные отчёты C++-тестов копируются рядом с тестами: на них проверяется разбор разделов -->
+  <ItemGroup>
+    <Content Include="..\..\tests\golden\*.txt" Link="golden\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
