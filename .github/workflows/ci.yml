@@ -39,3 +39,11 @@ jobs:
         run: cmake --build --preset msvc-debug
       - name: Test
         run: ctest --preset msvc-debug
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build GUI
+        run: dotnet build gui/GcodeAnalyzer.sln -c Release
+      - name: Test GUI
+        run: dotnet test gui/GcodeAnalyzer.sln -c Release --no-build
