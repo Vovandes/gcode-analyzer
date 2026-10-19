@@ -18,7 +18,7 @@ _Обновляется Claude Code в конце каждой сессии/эт
 - **Имя exe окна** теперь `GcodeAnalyzerGui.exe` (`AssemblyName`); папка и проект остались `GcodeAnalyzer.Gui`.
 - **Поиск CLI**: `ExeLocator.AppDirectory()` берёт каталог из `Environment.ProcessPath` (не из временной папки распаковки single-file). Новые тесты xUnit: путь с кириллицей и пробелами, `AppDirectory`.
 - `scripts/package.ps1` (PowerShell 5.1, файлы со BOM, zip через `System.IO.Compression.ZipFile` — `Compress-Archive` в 5.1 пишет обратные слэши), `scripts/check-deps.ps1` (`dumpbin /dependents`, ищет dumpbin через `vswhere`; падает при `VCRUNTIME140*`, `MSVCP140*`, `api-ms-win-crt-*`), шаблон `scripts/README.template.txt`. `dist/` в `.gitignore`. Локально: `powershell -ExecutionPolicy Bypass -File scripts/package.ps1`.
-- **CI** (`.github/workflows/ci.yml`, изменение по заданию этапа 8): новая задача `package` (windows-latest, после `linux` и `windows`): упаковка (версия из тега `v*`), проверка зависимостей, smoke-тест в `C:\тест папка\` (`--version`, анализ образца 1 с `--out`, отчёт непустой и содержит «Время обработки», `GcodeAnalyzerGui.exe` > 50 МБ, pdb нет), `actions/upload-artifact@v4` (30 дней), при теге `v*` — `gh release create` с zip. Права: на уровне workflow `contents: read`, у задачи `package` — `contents: write`.
+- **CI** (`.github/workflows/ci.yml`, изменение по заданию этапа 8): новая задача `package` (windows-latest, после `linux` и `windows`): упаковка (версия из тега `v*`), проверка зависимостей, smoke-тест в `C:\тест папка\` (`--version`, анализ образца 1 с `--out`, отчёт непустой и содержит «Время обработки», `GcodeAnalyzerGui.exe` > 50 МБ, pdb нет), `actions/upload-artifact@v4` (только для push в `main` и тегов `v*`, хранение 7 дней; на ветках и PR артефакт не загружается), при теге `v*` — `gh release create` с zip. Права: на уровне workflow `contents: read`, у задачи `package` — `contents: write`.
 
 `dumpbin /dependents gcode-analyzer.exe` (локально):
 ```
@@ -32,7 +32,7 @@ Smoke-тест локально (распаковка в `C:\тест папка
 Как выпустить версию: `git tag v0.8.0 && git push --tags` (CI соберёт zip и создаст GitHub Release; версию из тега подставит в `VERSION`).
 
 Чек-лист для Владимира:
-- [ ] Скачать zip (артефакт со страницы run CI или из Release); при блокировке — Свойства → «Разблокировать».
+- [ ] Скачать zip (артефакт со страницы run CI для `main`/тега или из Release); при блокировке — Свойства → «Разблокировать».
 - [ ] Распаковать в папку с русским именем и пробелом, например `D:\Мои программы\ЧПУ`.
 - [ ] Запустить `GcodeAnalyzerGui.exe` (первый запуск может занять несколько секунд — распаковка). В заголовке версия.
 - [ ] Открыть пример из `samples`, нажать «Анализировать», сохранить txt («Сохранить как txt»), открыть в Блокноте.
