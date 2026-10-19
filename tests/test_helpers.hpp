@@ -37,3 +37,14 @@ inline std::size_t countOf(const std::vector<CodeStat>& v, const std::string& co
 }
 
 } // namespace gca::test
+
+namespace gca::test {
+
+inline const ToolReport* findTool(const Report& r, int tool) {
+    for (const auto& t : r.tools) {
+        if (t.tool == tool) return &t;
+    }
+    return nullptr;
+}
+
+} // namespace gca::test

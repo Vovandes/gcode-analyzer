@@ -140,6 +140,8 @@ struct Report {
 
     TimeBreakdown time;
     std::size_t partialSegments = 0;        ///< moves whose start was unknown (length not fully counted)
+    std::size_t segmentsWithoutFeed = 0;    ///< cutting moves with unknown/zero feed (time not counted)
+    std::vector<std::string> timeNotes;     ///< arc errors etc.
     BBox box;
     BBox workBox;
 
