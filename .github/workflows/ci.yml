@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   linux:
     runs-on: ubuntu-latest
@@ -47,3 +50,59 @@ jobs:
         run: dotnet build gui/GcodeAnalyzer.sln -c Release
       - name: Test GUI
         run: dotnet test gui/GcodeAnalyzer.sln -c Release --no-build
+
+  package:
+    needs: [linux, windows]
+    runs-on: windows-latest
+    permissions:
+      contents: write   # публикация релиза при теге v*
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Package (version from tag v* if present)
+        shell: powershell
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $v = $env:GITHUB_REF_NAME.Substring(1)
+            powershell -ExecutionPolicy Bypass -File scripts/package.ps1 -Version $v
+          } else {
+            powershell -ExecutionPolicy Bypass -File scripts/package.ps1
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check CLI has no VC runtime dependencies
+        shell: powershell
+        run: powershell -ExecutionPolicy Bypass -File scripts/check-deps.ps1 -Exe build/package/Release/gcode-analyzer.exe
+      - name: Smoke test in a folder with Cyrillic name and space
+        shell: pwsh
+        run: |
+          [Console]::OutputEncoding = [Text.Encoding]::UTF8
+          $zip = Get-ChildItem dist -Filter *.zip | Select-Object -First 1
+          $dir = 'C:\тест папка'
+          Expand-Archive $zip.FullName $dir
+          $app = Get-ChildItem $dir -Directory | Select-Object -First 1
+          & "$($app.FullName)\gcode-analyzer.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw '--version failed' }
+          $report = "$dir\отчёт.txt"
+          & "$($app.FullName)\gcode-analyzer.exe" "$($app.FullName)\samples\sample-01-skymaster-vl1100a.nc" --out $report
+          if ($LASTEXITCODE -ne 0) { throw 'analysis failed' }
+          if (-not (Test-Path $report) -or (Get-Item $report).Length -lt 1000) { throw 'report is empty' }
+          if (-not (Select-String -Path $report -Pattern 'Время обработки' -Encoding UTF8 -Quiet)) { throw 'no time section in report' }
+          $gui = Get-Item "$($app.FullName)\GcodeAnalyzerGui.exe"
+          if ($gui.Length -lt 50MB) { throw "GUI exe too small: $($gui.Length)" }
+          Get-ChildItem $app.FullName -Recurse -File | Select-Object FullName, Length
+          if (Get-ChildItem $app.FullName -Recurse -Include *.pdb) { throw 'pdb in package' }
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: gcode-analyzer-win-x64
+          path: dist/*.zip
+          retention-days: 7
+      - name: GitHub Release (tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.zip --title "$GITHUB_REF_NAME" --generate-notes

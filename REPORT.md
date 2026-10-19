@@ -2,6 +2,43 @@
 
 _Обновляется Claude Code в конце каждой сессии/этапа (см. `CLAUDE.md`)._
 
+## Этап 8 — портативный архив (ветка `stage8-package`)
+Дата: 2026-10-19. Результат: `dist/gcode-analyzer-0.8.0-win-x64.zip`, **63,3 МБ**, одна папка `gcode-analyzer-0.8.0/`:
+
+| Файл | Размер, байт |
+|---|---|
+| `gcode-analyzer.exe` (CLI, MSVC Release, статический рантайм) | 680 448 |
+| `GcodeAnalyzerGui.exe` (WinForms, self-contained single-file, net8.0 win-x64) | 71 596 410 |
+| `README.txt` (UTF-8 с BOM, по-русски) | 2 496 |
+| `samples/sample-01-skymaster-vl1100a.nc`, `samples/sample-02-bridgeport-1300-480.nc` | 114 949, 64 672 |
+
+Что изменено:
+- **Версия** — один файл `VERSION` (`0.8.0`) в корне. CMake читает его (`project(VERSION ...)`, `GCA_VERSION`, выводит `--version`), csproj окна читает через `<Version>` (в заголовке окна «GcodeAnalyzer 0.8.0», класс `Logic/AppVersion`). Номер для тега: `package.ps1 -Version X.Y.Z` перезаписывает `VERSION` (так делает CI при теге `v*`).
+- **Статический рантайм**: `CMAKE_MSVC_RUNTIME_LIBRARY = MultiThreaded$<$<CONFIG:Debug>:Debug>` и `cmake_policy(CMP0091 NEW)` в `CMakeLists.txt` (действует и на тесты Debug). На Linux/macOS не влияет.
+- **Имя exe окна** теперь `GcodeAnalyzerGui.exe` (`AssemblyName`); папка и проект остались `GcodeAnalyzer.Gui`.
+- **Поиск CLI**: `ExeLocator.AppDirectory()` берёт каталог из `Environment.ProcessPath` (не из временной папки распаковки single-file). Новые тесты xUnit: путь с кириллицей и пробелами, `AppDirectory`.
+- `scripts/package.ps1` (PowerShell 5.1, файлы со BOM, zip через `System.IO.Compression.ZipFile` — `Compress-Archive` в 5.1 пишет обратные слэши), `scripts/check-deps.ps1` (`dumpbin /dependents`, ищет dumpbin через `vswhere`; падает при `VCRUNTIME140*`, `MSVCP140*`, `api-ms-win-crt-*`), шаблон `scripts/README.template.txt`. `dist/` в `.gitignore`. Локально: `powershell -ExecutionPolicy Bypass -File scripts/package.ps1`.
+- **CI** (`.github/workflows/ci.yml`, изменение по заданию этапа 8): новая задача `package` (windows-latest, после `linux` и `windows`): упаковка (версия из тега `v*`), проверка зависимостей, smoke-тест в `C:\тест папка\` (`--version`, анализ образца 1 с `--out`, отчёт непустой и содержит «Время обработки», `GcodeAnalyzerGui.exe` > 50 МБ, pdb нет), `actions/upload-artifact@v4` (только для push в `main` и тегов `v*`, хранение 7 дней; на ветках и PR артефакт не загружается), при теге `v*` — `gh release create` с zip. Права: на уровне workflow `contents: read`, у задачи `package` — `contents: write`.
+
+`dumpbin /dependents gcode-analyzer.exe` (локально):
+```
+Image has the following dependencies:
+    SHELL32.dll
+    KERNEL32.dll
+```
+Smoke-тест локально (распаковка в `C:\тест папка\`): `--version` → `gcode-analyzer 0.8.0`; анализ образца 1 → код 0, отчёт 23 778 байт, раздел «Время обработки (оценка)» есть. Тесты после изменений: ctest (MSVC Debug) 121 из 121, xUnit 32 из 32.
+Результат CI после push см. ниже в разделе «Известные проблемы» (если не отмечено — не проверялся).
+
+Как выпустить версию: `git tag v0.8.0 && git push --tags` (CI соберёт zip и создаст GitHub Release; версию из тега подставит в `VERSION`).
+
+Чек-лист для Владимира:
+- [ ] Скачать zip (артефакт со страницы run CI для `main`/тега или из Release); при блокировке — Свойства → «Разблокировать».
+- [ ] Распаковать в папку с русским именем и пробелом, например `D:\Мои программы\ЧПУ`.
+- [ ] Запустить `GcodeAnalyzerGui.exe` (первый запуск может занять несколько секунд — распаковка). В заголовке версия.
+- [ ] Открыть пример из `samples`, нажать «Анализировать», сохранить txt («Сохранить как txt»), открыть в Блокноте.
+- [ ] То же с флешки (запуск прямо с неё).
+- [ ] В консоли из папки: `gcode-analyzer.exe --version`.
+
 ## Дата и этап
 2026-10-19. Этапы 1-5 из `docs/SPEC.md` выполнены ранее (коммиты `stage1` .. `stage5`). Этапы 6 и 7 сделаны в ветке `stage6-7-gui` (коммиты `stage6: ...`, `stage7: ...`); PR не открыт, в `main` не влито.
 

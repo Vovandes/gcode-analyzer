@@ -1,7 +1,12 @@
 cmake_minimum_required(VERSION 3.21)
+cmake_policy(SET CMP0091 NEW)   # honour CMAKE_MSVC_RUNTIME_LIBRARY
+
+# Single source of the version number: the VERSION file in the repo root (also read by the GUI project)
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" GCA_VERSION_STRING LIMIT_COUNT 1)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
 
 project(gcode_analyzer
-    VERSION 0.1.0
+    VERSION ${GCA_VERSION_STRING}
     DESCRIPTION "G-code analyzer for postprocessor development (Fanuc milling)"
     LANGUAGES CXX)
 
@@ -9,6 +14,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Static MSVC runtime: the CLI must run without Visual C++ Redistributable
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 option(GCA_BUILD_TESTS "Build unit tests (Catch2 via FetchContent)" ON)
 
