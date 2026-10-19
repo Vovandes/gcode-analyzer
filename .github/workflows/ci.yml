@@ -76,7 +76,7 @@ jobs:
         shell: powershell
         run: powershell -ExecutionPolicy Bypass -File scripts/check-deps.ps1 -Exe build/package/Release/gcode-analyzer.exe
       - name: Smoke test in a folder with Cyrillic name and space
-        shell: powershell
+        shell: pwsh
         run: |
           [Console]::OutputEncoding = [Text.Encoding]::UTF8
           $zip = Get-ChildItem dist -Filter *.zip | Select-Object -First 1
