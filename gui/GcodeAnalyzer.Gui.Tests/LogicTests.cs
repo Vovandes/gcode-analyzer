@@ -78,6 +78,16 @@ public class ExeLocatorTests : IDisposable
     }
 
     [Fact]
+    public void FindsExeInFolderWithCyrillicAndSpaces()
+    {
+        string exe = Touch("тест папка", "станок 1", ExeLocator.ExeName);
+        Assert.Equal(exe, ExeLocator.Find(Path.Combine(_root, "тест папка", "станок 1")));
+    }
+
+    [Fact]
+    public void AppDirectoryIsNotEmpty() => Assert.True(Directory.Exists(ExeLocator.AppDirectory()));
+
+    [Fact]
     public void FindsExeInBuildPresetConfigAboveStartDirectory()
     {
         string exe = Touch("build", "msvc", "Debug", ExeLocator.ExeName);

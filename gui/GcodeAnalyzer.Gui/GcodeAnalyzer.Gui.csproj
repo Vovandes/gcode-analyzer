@@ -7,7 +7,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>GcodeAnalyzer.Gui</RootNamespace>
-    <AssemblyName>GcodeAnalyzer.Gui</AssemblyName>
+    <AssemblyName>GcodeAnalyzerGui</AssemblyName>
+    <!-- Версия берётся из файла VERSION в корне репозитория (один источник для CLI и окна) -->
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\..\VERSION').Trim())</Version>
+    <!-- Не добавлять хеш коммита к версии -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
 </Project>

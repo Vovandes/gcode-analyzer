@@ -6,6 +6,16 @@ public static class ExeLocator
     public const string ExeName = "gcode-analyzer.exe";
 
     /// <summary>
+    /// Каталог, где лежит сам exe окна. В single-file сборке берём путь процесса,
+    /// а не временную папку распаковки.
+    /// </summary>
+    public static string AppDirectory()
+    {
+        string? processDir = Path.GetDirectoryName(Environment.ProcessPath);
+        return string.IsNullOrEmpty(processDir) ? AppContext.BaseDirectory : processDir;
+    }
+
+    /// <summary>
     /// Порядок поиска: путь из настроек (если файл существует; ручной выбор важнее автопоиска) →
     /// рядом с exe GUI → вверх по родительским каталогам: сам каталог, build\*\ и build\*\{Debug,Release}\.
     /// Возвращает null, если ничего не найдено.

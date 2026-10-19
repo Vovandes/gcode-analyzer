@@ -42,7 +42,7 @@ public class MainForm : Form
 
     public MainForm()
     {
-        Text = "GcodeAnalyzer";
+        Text = "GcodeAnalyzer " + AppVersion.Current;
         Size = new Size(1100, 750);
         AllowDrop = true; // разрешаем перетаскивать файлы на окно
 
@@ -139,7 +139,7 @@ public class MainForm : Form
     /// <summary>Находит exe (настройки → рядом → build\*) и создаёт запускалку; null, если не найден.</summary>
     private AnalyzerRunner? CreateRunner(bool showMessage)
     {
-        string? exe = ExeLocator.Find(AppContext.BaseDirectory, _exeBox.Text.Trim());
+        string? exe = ExeLocator.Find(ExeLocator.AppDirectory(), _exeBox.Text.Trim());
         if (exe == null)
         {
             if (showMessage)
