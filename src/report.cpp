@@ -1,8 +1,10 @@
 #include "gca/report.hpp"
 
 #include "gca/dialect.hpp"
+#include "gca/text_util.hpp"
 
 #include <algorithm>
+#include <map>
 #include <iomanip>
 #include <ostream>
 #include <sstream>
@@ -11,25 +13,9 @@ namespace gca {
 
 namespace {
 
-std::string fixed(double v, int prec) {
-    std::ostringstream os;
-    os.imbue(std::locale::classic());
-    os << std::fixed << std::setprecision(prec) << v;
-    std::string s = os.str();
-    if (s == "-0" || (s.size() > 1 && s.find_first_not_of("-0.") == std::string::npos && s[0] == '-')) {
-        s.erase(0, 1); // no negative zero
-    }
-    return s;
-}
+std::string fixed(double v, int prec) { return fixedNumber(v, prec); }
 
-std::string num(double v) {
-    std::string s = fixed(v, 3);
-    if (s.find('.') != std::string::npos) {
-        while (!s.empty() && s.back() == '0') s.pop_back();
-        if (!s.empty() && s.back() == '.') s.pop_back();
-    }
-    return s;
-}
+std::string num(double v) { return trimmedNumber(v); }
 
 void heading(std::ostream& out, const std::string& title) {
     out << "\n== " << title << " ==\n";
@@ -57,7 +43,7 @@ std::string duration(double sec) {
 
 std::string timeCell(double sec) { return duration(sec) + " (" + fixed(sec, 1) + " с)"; }
 
-[[maybe_unused]] std::string rangeText(const Range& r) {
+std::string rangeText(const Range& r) {
     if (!r.has) return "-";
     return num(r.min) + " .. " + num(r.max);
 }
@@ -165,10 +151,99 @@ void writeTextReport(const Report& r, std::ostream& out) {
         writeBox(out, t.workBox, "    ");
     }
 
+    heading(out, "Рабочие системы координат");
+    if (r.wcsUsage.empty()) out << "  СК не назначались\n";
+    for (const auto& w : r.wcsUsage) {
+        out << "  " << pad(w.wcs.empty() ? "(не назначена)" : w.wcs, 12) << " назначений " << w.selections
+            << ", перемещений " << w.moves;
+        if (w.firstLine != 0) out << ", первое назначение в строке " << w.firstLine;
+        out << '\n';
+    }
+    for (const auto& n : r.wcsNotes) out << "  " << n << '\n';
+
+    heading(out, "Подачи и обороты по инструментам");
+    for (const auto& t : r.tools) {
+        if (!t.feedPerMin.has && !t.feedPerRev.has && !t.spindle.has && t.spindleDirs.empty() && t.coolant.empty()) continue;
+        out << "  " << toolTitle(t.tool) << ":\n";
+        out << "      F (G94, мм/мин): " << rangeText(t.feedPerMin) << '\n';
+        out << "      F (G95, мм/об):  " << rangeText(t.feedPerRev) << '\n';
+        out << "      S (об/мин):      " << rangeText(t.spindle);
+        if (t.fractionalS) out << "  (есть дробные значения S)";
+        out << '\n';
+        out << "      шпиндель:        ";
+        if (t.spindleDirs.empty()) out << "-";
+        for (const auto& d : t.spindleDirs) out << displayCode(d) << ' ';
+        out << '\n';
+        out << "      охлаждение:      ";
+        if (t.coolant.empty()) out << "-";
+        for (const auto& c : t.coolant) out << displayCode(c) << ' ';
+        out << '\n';
+        if (!t.wcs.empty()) {
+            out << "      СК:              ";
+            for (const auto& w : t.wcs) out << w << "; ";
+            out << '\n';
+        }
+    }
+
+    heading(out, "Циклы сверления");
+    if (r.cycles.empty()) out << "  циклы не используются\n";
+    for (const auto& c : r.cycles) {
+        out << "  " << displayCode(c.code) << ", " << toolTitle(c.tool) << ": отверстий " << c.holes
+            << ", Z " << rangeText(c.z) << ", R " << rangeText(c.r);
+        if (c.q.has) out << ", Q " << rangeText(c.q);
+        if (c.p.has) out << ", P " << rangeText(c.p);
+        if (c.feedPerRev.has) out << ", F (G95) " << rangeText(c.feedPerRev);
+        if (c.feedPerMin.has) out << ", F (G94) " << rangeText(c.feedPerMin);
+        out << ", возврат G98: " << c.returnInitial << ", G99: " << c.returnR << '\n';
+    }
+    {
+        std::size_t g80 = 0;
+        for (const auto& g : r.gCodes) if (g.code == "G80") g80 = g.count;
+        out << "  Отмен цикла G80: " << g80 << '\n';
+    }
+
     heading(out, "G-коды");
     writeCodes(out, r.gCodes);
     heading(out, "M-коды");
     writeCodes(out, r.mCodes);
+
+    heading(out, "Машинно-специфичные и неизвестные коды");
+    {
+        bool any = false;
+        const auto list = [&](const std::vector<CodeStat>& codes) {
+            for (const auto& c : codes) {
+                if (!c.machineSpecific && c.known) continue;
+                any = true;
+                out << "  " << pad(displayCode(c.code), 7) << std::setw(6) << c.count << "  ";
+                if (c.known) out << c.description << "  [" << c.source << "]";
+                else out << "?  неизвестный код, кандидат для онлайн-поиска (первая строка " << c.firstLine << ")";
+                out << '\n';
+            }
+        };
+        list(r.gCodes);
+        list(r.mCodes);
+        if (!any) out << "  нет\n";
+    }
+
+    heading(out, "Предупреждения");
+    if (r.warnings.empty()) out << "  нет\n";
+    {
+        std::map<std::string, std::size_t> perCode;
+        for (const auto& w : r.warnings) ++perCode[w.code];
+        if (!perCode.empty()) {
+            out << "  Всего: " << r.warnings.size() << " (";
+            bool first = true;
+            for (const auto& [code, n] : perCode) {
+                out << (first ? "" : ", ") << code << ": " << n;
+                first = false;
+            }
+            out << ")\n";
+        }
+    }
+    for (const auto& w : r.warnings) {
+        out << "  [" << w.code << "] строка " << w.line << ": " << w.message << '\n';
+        if (!w.text.empty()) out << "      " << w.text << '\n';
+    }
 
     if (!r.diagnostics.empty()) {
         heading(out, "Диагностика лексера");
