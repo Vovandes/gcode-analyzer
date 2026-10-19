@@ -48,3 +48,17 @@ inline const ToolReport* findTool(const Report& r, int tool) {
 }
 
 } // namespace gca::test
+
+namespace gca::test {
+
+inline std::size_t countWarnings(const Report& r, const char* code) {
+    std::size_t n = 0;
+    for (const auto& w : r.warnings) {
+        if (w.code == code) ++n;
+    }
+    return n;
+}
+
+inline bool hasWarning(const Report& r, const char* code) { return countWarnings(r, code) > 0; }
+
+} // namespace gca::test
