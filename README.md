@@ -8,7 +8,7 @@
 
 ## Сборка
 
-Требуется CMake ≥ 3.21 и компилятор с C++20 (GCC 11+, Clang 14+, MSVC 2022).
+Требуется CMake ≥ 3.21 и компилятор с C++20 (GCC 11+, Clang 14+, MSVC 2022+).
 
 ```bash
 cmake --preset debug && cmake --build --preset debug && ctest --preset debug   # Linux
