@@ -113,6 +113,8 @@ private:
 /// Find a dialect by id ("fanuc-mill"); nullptr if unknown.
 [[nodiscard]] const IDialect* findDialect(std::string_view id);
 [[nodiscard]] std::vector<std::string> dialectIds();
+/// Machine overlay by id ("skymaster-vl1100a"); nullptr if the dialect has no such machine.
+[[nodiscard]] const MachineProfile* findMachine(const IDialect& dialect, std::string_view id);
 /// Pick the machine overlay by the "Generated for ..." header text; nullptr if none matches.
 [[nodiscard]] const MachineProfile* detectMachine(const IDialect& dialect, std::string_view headerText);
 

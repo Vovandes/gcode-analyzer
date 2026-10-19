@@ -1,4 +1,5 @@
 #include "gca/analyzer.hpp"
+#include "gca/path_util.hpp"
 
 #include "gca/analyzers/code_stats.hpp"
 #include "gca/analyzers/bbox.hpp"
@@ -81,7 +82,13 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
     }
 
     report.file.machineName = findMachineName(program);
-    const MachineProfile* machine = detectMachine(*dialect, report.file.machineName);
+    const MachineProfile* machine = nullptr;
+    if (options.machine.empty() || options.machine == "auto") {
+        machine = detectMachine(*dialect, report.file.machineName);
+    } else {
+        machine = findMachine(*dialect, options.machine);
+        if (machine == nullptr) throw OptionError("unknown machine: " + options.machine);
+    }
     if (machine != nullptr) report.file.machineProfile = machine->name;
     const Profile profile(*dialect, machine);
 
@@ -123,10 +130,10 @@ Report analyzeText(std::string_view text, const std::string& fileName, const Ana
 
 std::string analyzeFile(const std::filesystem::path& input, const AnalysisOptions& options) {
     std::ifstream in(input, std::ios::binary);
-    if (!in) throw IoError("cannot open input file: " + input.string());
+    if (!in) throw IoError("cannot open input file: " + pathToUtf8(input));
     const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    if (in.bad()) throw IoError("cannot read input file: " + input.string());
-    const Report report = analyzeText(text, input.filename().string(), options);
+    if (in.bad()) throw IoError("cannot read input file: " + pathToUtf8(input));
+    const Report report = analyzeText(text, pathToUtf8(input.filename()), options);
     return renderTextReport(report);
 }
 
