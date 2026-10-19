@@ -1,11 +1,13 @@
-// gcode-analyzer: public API (skeleton).
-// Full module layout is described in docs/SPEC.md; this header is a stub
-// that will be split into lexer / modal state / motion / analyzers / report.
+// gcode-analyzer: public API. Modules are described in docs/SPEC.md (section 6).
 #pragma once
 
+#include "gca/lexer.hpp"
+#include "gca/report.hpp"
+
 #include <filesystem>
-#include <optional>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 
 namespace gca {
 
@@ -17,15 +19,28 @@ struct OutputOptions {
     std::optional<std::filesystem::path> outFile; ///< empty -> stdout
 };
 
-/// Analysis settings (will grow: dialect profile, rapid feed, etc.).
+/// Analysis settings.
 struct AnalysisOptions {
     std::string dialect = "fanuc-mill"; ///< dialect/profile id
     double rapidFeedMmPerMin = 10000.0; ///< G0 rate for time estimate
 };
 
-/// Analyze a program and return the text report.
-/// STUB: currently returns a placeholder; to be implemented per docs/SPEC.md.
-[[nodiscard]] std::string analyzeFile(const std::filesystem::path& input,
-                                      const AnalysisOptions& options);
+/// Input file cannot be read.
+struct IoError : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+/// Bad options (unknown dialect, non-positive rapid feed).
+struct OptionError : std::invalid_argument {
+    using std::invalid_argument::invalid_argument;
+};
+
+/// Run the whole pipeline on an already parsed program.
+[[nodiscard]] Report analyzeProgram(const Program& program, const std::string& fileName,
+                                    const AnalysisOptions& options);
+/// Convenience: text of a program -> Report.
+[[nodiscard]] Report analyzeText(std::string_view text, const std::string& fileName,
+                                 const AnalysisOptions& options);
+/// Read a file, analyze it, return the text report. Throws IoError / OptionError.
+[[nodiscard]] std::string analyzeFile(const std::filesystem::path& input, const AnalysisOptions& options);
 
 } // namespace gca

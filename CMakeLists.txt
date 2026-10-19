@@ -27,6 +27,22 @@ endif()
 # ---------------------------------------------------------------------------
 add_library(gca_core STATIC
     src/analyzer.cpp
+    src/cli.cpp
+    src/lexer.cpp
+    src/dialect.cpp
+    src/knowledge.cpp
+    src/modal_state.cpp
+    src/motion.cpp
+    src/report.cpp
+    src/analyzers/code_stats.cpp
+    src/analyzers/tools.cpp
+    src/analyzers/time.cpp
+    src/analyzers/bbox.cpp
+    src/analyzers/wcs.cpp
+    src/analyzers/feeds_speeds.cpp
+    src/analyzers/cycles.cpp
+    src/analyzers/warnings.cpp
+    src/analyzers/format.cpp
 )
 target_include_directories(gca_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_definitions(gca_core PUBLIC GCA_VERSION="${PROJECT_VERSION}")
