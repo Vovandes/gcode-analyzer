@@ -4,6 +4,7 @@
 #include "gca/analyzers/bbox.hpp"
 #include "gca/analyzers/cycles.hpp"
 #include "gca/analyzers/feeds_speeds.hpp"
+#include "gca/analyzers/format.hpp"
 #include "gca/analyzers/time.hpp"
 #include "gca/analyzers/tools.hpp"
 #include "gca/analyzers/warnings.hpp"
@@ -96,6 +97,7 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
     analyzers.push_back(std::make_unique<FeedsSpeedsAnalyzer>());
     analyzers.push_back(std::make_unique<CyclesAnalyzer>());
     analyzers.push_back(std::make_unique<WarningsAnalyzer>(program));
+    analyzers.push_back(std::make_unique<FormatAnalyzer>());
     analyzers.push_back(std::make_unique<CodeStatsAnalyzer>(knowledge, report.file.dialectId));
 
     ModalMachine machineState(profile);
