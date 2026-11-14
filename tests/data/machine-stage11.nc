@@ -1,0 +1,11 @@
+(Synthetic test only, not a KEDE program)
+G92 X0 Y0 Z0 B0
+G54 S1000 M3
+T1M6
+G1 X100 F600
+G0 Y10
+G0 B90
+G4 X1
+M0
+M1
+M30

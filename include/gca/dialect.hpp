@@ -3,6 +3,8 @@
 #pragma once
 
 #include <memory>
+#include <array>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -62,6 +64,20 @@ struct MachineProfile {
         std::string description;
     };
     std::vector<MCode> mCodes;
+    struct Axis {
+        std::optional<double> min, max, rapid, acceleration, home, home30;
+    };
+    std::array<Axis, 4> axes{};
+    std::optional<double> feedMax, spindleMax;
+    std::optional<double> toolChangeSec, bSecondsPer90, spindleStartSec, g28Time;
+    double junctionAngle = 30.0;
+    bool skipFirstChange = false;
+    std::map<std::string, std::array<std::optional<double>, 3>> wcsOffsets;
+    [[nodiscard]] bool hasMotionData() const {
+        if (!wcsOffsets.empty()) return true;
+        for (const auto& a : axes) if (a.min || a.max || a.rapid || a.acceleration || a.home || a.home30) return true;
+        return false;
+    }
 };
 
 class IDialect {

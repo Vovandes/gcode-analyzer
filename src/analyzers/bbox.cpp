@@ -14,6 +14,7 @@ void BBoxAnalyzer::addPoint(BBox& box, const Position& p) {
 }
 
 void BBoxAnalyzer::onSegment(const Segment& seg, const BlockContext&) {
+    if (seg.machineCoordinates) return;
     if (seg.kind == SegmentKind::Home || seg.kind == SegmentKind::Dwell) return;
     if (perTool_.find(seg.tool) == perTool_.end()) toolOrder_.push_back(seg.tool);
     Boxes& tool = perTool_[seg.tool];

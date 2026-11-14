@@ -13,7 +13,7 @@ public static class AnalyzerArguments
     /// ProcessStartInfo.ArgumentList сам экранирует пробелы и кириллицу.
     /// </summary>
     public static List<string> Build(string inputFile, string outFile, string? machineId, bool bom, string? extraArguments,
-        string? jsonFile = null)
+        string? jsonFile = null, string? machineFile = null)
     {
         var args = new List<string> { inputFile };
         args.AddRange(ArgumentSplitter.Split(extraArguments));
@@ -24,6 +24,11 @@ public static class AnalyzerArguments
             args.Add(machineId);
         }
         if (bom) args.Add("--bom");
+        if (!string.IsNullOrEmpty(machineFile))
+        {
+            args.Add("--machine-file");
+            args.Add(machineFile);
+        }
 
         args.Add("--out");
         args.Add(outFile);

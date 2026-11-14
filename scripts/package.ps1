@@ -57,6 +57,7 @@ foreach ($item in $variants) {
     Copy-Item -LiteralPath $cliExe -Destination $stage
     Copy-Item -LiteralPath $guiExe -Destination $stage
     Copy-Item (Join-Path $root 'samples\*.nc') (Join-Path $stage 'samples')
+    Copy-Item -LiteralPath (Join-Path $root 'machines') -Destination (Join-Path $stage 'machines') -Recurse
     $description = if ($item -eq 'compat') { 'вариант для старой Windows 10 без поддержки CET' } else { 'стандартный вариант (.NET 10, CET включён)' }
     $readme = (Get-Content (Join-Path $PSScriptRoot 'README.template.txt') -Raw -Encoding UTF8).Replace('{VERSION}', $Version).Replace('{VARIANT}', $description)
     $readme = $readme -replace "`r?`n", "`r`n"

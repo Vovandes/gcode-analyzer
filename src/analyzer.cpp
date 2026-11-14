@@ -12,6 +12,9 @@
 #include "gca/analyzers/wcs.hpp"
 #include "gca/knowledge.hpp"
 #include "gca/modal_state.hpp"
+#include "gca/machine_profile.hpp"
+#include "gca/analyzers/limits.hpp"
+#include "gca/analyzers/machine_time.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -83,13 +86,31 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
 
     report.file.machineName = findMachineName(program);
     const MachineProfile* machine = nullptr;
-    if (options.machine.empty() || options.machine == "auto") {
-        machine = detectMachine(*dialect, report.file.machineName);
+    auto machines = loadMachines(*dialect, options.machinesDirectory);
+    std::optional<MachineProfile> explicitMachine;
+    if (options.machineFile) {
+        explicitMachine = readMachineIni(*options.machineFile, machines);
+        machine = &*explicitMachine;
+    } else if (options.machine.empty() || options.machine == "auto") {
+        std::string header = lower(report.file.machineName);
+        header.erase(std::remove_if(header.begin(), header.end(), [](unsigned char c) { return std::isspace(c) != 0; }), header.end());
+        for (const auto& m : machines) {
+            std::string match = lower(m.match);
+            match.erase(std::remove_if(match.begin(), match.end(), [](unsigned char c) { return std::isspace(c) != 0; }), match.end());
+            if (!match.empty() && header.find(match) != std::string::npos) { machine = &m; break; }
+        }
     } else {
-        machine = findMachine(*dialect, options.machine);
+        for (const auto& m : machines) if (m.id == options.machine) { machine = &m; break; }
         if (machine == nullptr) throw OptionError("unknown machine: " + options.machine);
     }
+    std::optional<MachineProfile> configured;
+    if (machine) {
+        configured = *machine;
+        for (const auto& [name, offset] : options.wcsOffsets) configured->wcsOffsets[name] = offset;
+        machine = &*configured;
+    }
     if (machine != nullptr) report.file.machineProfile = machine->name;
+    report.hasMachineProfile = machine != nullptr;
     const Profile profile(*dialect, machine);
 
     KnowledgeChain knowledge;
@@ -106,6 +127,8 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
     analyzers.push_back(std::make_unique<WarningsAnalyzer>(program));
     analyzers.push_back(std::make_unique<FormatAnalyzer>());
     analyzers.push_back(std::make_unique<CodeStatsAnalyzer>(knowledge, report.file.dialectId));
+    if (machine) analyzers.push_back(std::make_unique<LimitsAnalyzer>(program, *machine));
+    analyzers.push_back(std::make_unique<MachineTimeAnalyzer>(machine, options.rapidFeedMmPerMin));
 
     ModalMachine machineState(profile);
     for (std::size_t i = 0; i < program.blocks.size(); ++i) {

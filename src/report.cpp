@@ -122,6 +122,7 @@ void writeTextReport(const Report& r, std::ostream& out) {
     }
 
     heading(out, "Время обработки (оценка)");
+    out << "  Следующие строки описывают прежнюю модель; сравнение с новой приведено ниже.\n";
     out << "  Скорость G0: " << num(r.file.rapidFeed) << " мм/мин. Модели разгона и торможения нет.\n";
     out << "  Смена инструмента, M0/M1, G28 по времени не считаются: M6 " << r.toolSequence.size()
         << ", M0 " << r.programStops << ", M1 " << r.optionalStops << ", G28/G30 " << r.homeReturns << ".\n";
@@ -137,6 +138,26 @@ void writeTextReport(const Report& r, std::ostream& out) {
         out << "  Рабочих ходов без известной подачи (время не учтено): " << r.segmentsWithoutFeed << '\n';
     }
     for (const auto& n : r.timeNotes) out << "  " << n << '\n';
+    out << "  Прежняя модель: " << timeCell(r.time.totalSec()) << " | С разгонами и сменами: " << timeCell(r.machineTime.totalSec()) << '\n';
+    const auto& mt = r.machineTime;
+    out << "  Новая разбивка, с: G0 " << fixed(mt.motion.rapidSec, 3) << ", рабочие " << fixed(mt.motion.feedSec, 3)
+        << ", циклы " << fixed(mt.motion.cycleSec, 3) << ", смены " << fixed(mt.toolChangeSec, 3)
+        << ", G28/G30 " << fixed(mt.homeSec, 3) << ", B " << fixed(mt.bSec, 3)
+        << ", выдержки " << fixed(mt.motion.dwellSec, 3) << ", шпиндель " << fixed(mt.spindleSec, 3) << '\n';
+    out << "  M0/M1: длительность остановок оператора неизвестна, в итог не входит (M0 " << r.programStops << ", M1 " << r.optionalStops << ").\n";
+    for (const auto& n : mt.notes) out << "  " << n << '\n';
+
+    heading(out, "Пределы станка");
+    if (r.limits.empty()) out << "  Проверки не выполнены: " << (r.hasMachineProfile ? "пределы в профиле не заданы или нет данных УП" : "нет профиля станка") << '\n';
+    out << "  Параметр | Значение в УП | Предел | Статус\n";
+    const auto optionalNum = [](std::optional<double> v) { return v ? num(*v) : "?"; };
+    for (const auto& c : r.limits) {
+        out << "  " << (c.status == "error" ? "[error] " : c.status == "info" ? "[info] " : "[ok] ")
+            << c.parameter << " | " << optionalNum(c.valueMin) << " .. " << optionalNum(c.valueMax)
+            << " | " << optionalNum(c.limitMin) << " .. " << optionalNum(c.limitMax)
+            << " | " << (c.status == "error" ? "НАРУШЕНИЕ" : c.status == "info" ? "только размах" : "в пределах")
+            << " (строка " << c.line << ")\n";
+    }
 
     heading(out, "Габариты траектории (в рабочей СК, без G28)");
     out << "  Все перемещения (с G0):\n";

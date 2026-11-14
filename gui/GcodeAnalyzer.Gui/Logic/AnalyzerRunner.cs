@@ -56,13 +56,13 @@ public class AnalyzerRunner
     /// Так кодировка консоли не влияет на результат. Временный файл удаляется.
     /// </summary>
     public async Task<(RunResult Run, string Report)> AnalyzeToMemoryAsync(
-        string inputFile, string? machineId, string? extraArguments)
+        string inputFile, string? machineId, string? extraArguments, string? machineFile = null)
     {
         string tempFile = Path.Combine(Path.GetTempPath(), $"gca-{Guid.NewGuid():N}.txt");
         string jsonFile = Path.Combine(Path.GetTempPath(), $"gca-{Guid.NewGuid():N}.json");
         try
         {
-            var args = AnalyzerArguments.Build(inputFile, tempFile, machineId, bom: false, extraArguments, jsonFile);
+            var args = AnalyzerArguments.Build(inputFile, tempFile, machineId, bom: false, extraArguments, jsonFile, machineFile);
             RunResult run = await ReadAnalysisAsync(await RunAsync(args), jsonFile);
             string report = run.ExitCode == 0 && File.Exists(tempFile)
                 ? await File.ReadAllTextAsync(tempFile, Encoding.UTF8)
@@ -78,12 +78,12 @@ public class AnalyzerRunner
 
     /// <summary>Анализ с записью отчёта прямо в выбранный пользователем .txt.</summary>
     public async Task<RunResult> AnalyzeToFileAsync(
-        string inputFile, string outFile, string? machineId, bool bom, string? extraArguments)
+        string inputFile, string outFile, string? machineId, bool bom, string? extraArguments, string? machineFile = null)
     {
         string jsonFile = Path.Combine(Path.GetTempPath(), $"gca-{Guid.NewGuid():N}.json");
         try
         {
-            var args = AnalyzerArguments.Build(inputFile, outFile, machineId, bom, extraArguments, jsonFile);
+            var args = AnalyzerArguments.Build(inputFile, outFile, machineId, bom, extraArguments, jsonFile, machineFile);
             return await ReadAnalysisAsync(await RunAsync(args), jsonFile);
         }
         finally

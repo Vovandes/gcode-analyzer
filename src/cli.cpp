@@ -6,6 +6,8 @@
 #include "gca/options.hpp"
 #include "gca/path_util.hpp"
 #include "gca/json_report.hpp"
+#include "gca/machine_profile.hpp"
+#include <algorithm>
 
 #include <filesystem>
 #include <fstream>
@@ -38,9 +40,9 @@ int emit(const std::string& text, const std::optional<std::filesystem::path>& ou
     return code;
 }
 
-std::string machinesText(const IDialect& dialect) {
+std::string machinesText(const std::vector<MachineProfile>& machines) {
     std::string s;
-    for (const auto& m : dialect.machines()) s += m.id + '\t' + m.name + '\n';
+    for (const auto& m : machines) s += m.id + '\t' + m.name + '\n';
     return s;
 }
 
@@ -55,8 +57,10 @@ bool sameFile(const std::filesystem::path& a, const std::filesystem::path& b) {
 
 } // namespace
 
-int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream& err) {
+int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream& err,
+           const std::filesystem::path& machinesDirectory) {
     AnalysisOptions options;
+    options.machinesDirectory = machinesDirectory;
     OutputOptions output;
     std::optional<std::filesystem::path> input;
     std::optional<std::filesystem::path> jsonFile;
@@ -95,6 +99,19 @@ int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
             options.machine = args[++i];
             continue;
         }
+        if (a == "--machine-file") {
+            if (!needValue()) return kExitBadArguments;
+            options.machineFile = pathFromUtf8(args[++i]);
+            continue;
+        }
+        if (a == "--wcs-offset") {
+            if (!needValue()) return kExitBadArguments;
+            try {
+                auto [name, offset] = parseWcsOffset(args[++i]);
+                options.wcsOffsets[name] = offset;
+            } catch (const OptionError& e) { err << e.what() << '\n'; return kExitBadArguments; }
+            continue;
+        }
         if (a == "--rapid") {
             if (!needValue()) return kExitBadArguments;
             const auto v = parseNumber(args[++i]);
@@ -121,12 +138,24 @@ int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
         err << ")\n";
         return kExitBadArguments;
     }
-    if (wantMachines) return emit(machinesText(*dialect), output.outFile, bom, "Список станков записан", out, err);
+    std::vector<MachineProfile> available;
+    try {
+        available = loadMachines(*dialect, machinesDirectory);
+        if (options.machineFile) {
+            auto loaded = readMachineIni(*options.machineFile, available);
+            bool replaced = false;
+            for (auto& m : available) if (m.id == loaded.id) { m = loaded; replaced = true; break; }
+            if (!replaced) available.push_back(std::move(loaded));
+        }
+    } catch (const IoError& e) { err << e.what() << '\n'; return kExitIoError; }
+      catch (const OptionError& e) { err << e.what() << '\n'; return kExitBadArguments; }
+    if (wantMachines) return emit(machinesText(available), output.outFile, bom, "Список станков записан", out, err);
 
     if (!input) { err << helpText(); return kExitBadArguments; }
-    if (options.machine != "auto" && findMachine(*dialect, options.machine) == nullptr) {
+    const bool known = std::any_of(available.begin(), available.end(), [&](const auto& m) { return m.id == options.machine; });
+    if (!options.machineFile && options.machine != "auto" && !known) {
         err << "Неизвестный станок: " << options.machine << " (доступно: auto";
-        for (const auto& m : dialect->machines()) err << ' ' << m.id;
+        for (const auto& m : available) err << ' ' << m.id;
         err << ")\n";
         return kExitBadArguments;
     }

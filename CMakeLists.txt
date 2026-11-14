@@ -40,6 +40,7 @@ endif()
 # ---------------------------------------------------------------------------
 add_library(gca_core STATIC
     src/analyzer.cpp
+    src/machine_profile.cpp
     src/cli.cpp
     src/lexer.cpp
     src/dialect.cpp
@@ -52,6 +53,8 @@ add_library(gca_core STATIC
     src/analyzers/code_stats.cpp
     src/analyzers/tools.cpp
     src/analyzers/time.cpp
+    src/analyzers/limits.cpp
+    src/analyzers/machine_time.cpp
     src/analyzers/bbox.cpp
     src/analyzers/wcs.cpp
     src/analyzers/feeds_speeds.cpp
@@ -67,6 +70,9 @@ target_link_libraries(gca_core PRIVATE gca_warnings)
 # CLI executable
 # ---------------------------------------------------------------------------
 add_executable(gcode-analyzer src/main.cpp)
+add_custom_target(gca_machine_profiles ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${PROJECT_SOURCE_DIR}/machines" "$<TARGET_FILE_DIR:gcode-analyzer>/machines"
+    DEPENDS gcode-analyzer)
 target_link_libraries(gcode-analyzer PRIVATE gca_core gca_warnings)
 if(WIN32)
     target_link_libraries(gcode-analyzer PRIVATE shell32)   # CommandLineToArgvW (UTF-8 arguments)

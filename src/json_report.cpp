@@ -104,6 +104,7 @@ const char* planeName(Plane plane) {
 }
 
 void segment(std::ostream& out, const Segment& s, double rapid) {
+    // Optional additive fields preserve existing schema-1 consumers.
     out << "{\"line\":" << s.lineNo << ",\"kind\":"; string(out, kindName(s.kind));
     out << ",\"tool\":" << s.tool << ",\"plane\":"; string(out, planeName(s.plane));
     out << ",\"start\":"; point(out, s.from);
@@ -138,6 +139,12 @@ void segment(std::ostream& out, const Segment& s, double rapid) {
         out << ",\"q\":"; optional(out, s.cycle.hasQ ? std::optional<double>(s.cycle.q) : std::nullopt);
         out << ",\"p\":"; optional(out, s.cycle.hasP ? std::optional<double>(s.cycle.p) : std::nullopt);
         out << ",\"returnToInitial\":" << (s.cycle.returnToInitial ? "true" : "false") << '}';
+    }
+    if (s.limitViolation) out << ",\"limitViolation\":true";
+    if (s.machineCoordinates) out << ",\"machineCoordinates\":true";
+    if (s.workFrom && s.workTo) {
+        out << ",\"workStart\":"; point(out, *s.workFrom);
+        out << ",\"workEnd\":"; point(out, *s.workTo);
     }
     out << '}';
 }
@@ -192,6 +199,26 @@ void writeJsonReport(const Report& report, std::ostream& output) {
     });
     out << ",\n  \"tools\":"; array(out, report.tools, tool);
     out << ",\n  \"time\":"; time(out, report.time);
+    out << ",\n  \"limits\":";
+    array(out, report.limits, [](std::ostream& o, const Report::LimitCheck& c) {
+        o << "{\"parameter\":"; string(o, c.parameter);
+        o << ",\"valueMin\":"; optional(o, c.valueMin);
+        o << ",\"valueMax\":"; optional(o, c.valueMax);
+        o << ",\"limitMin\":"; optional(o, c.limitMin);
+        o << ",\"limitMax\":"; optional(o, c.limitMax);
+        o << ",\"status\":"; string(o, c.status); o << ",\"line\":" << c.line << '}';
+    });
+    const auto& mt = report.machineTime;
+    out << ",\n  \"machineTime\":{\"totalSec\":"; number(out, mt.totalSec());
+    out << ",\"accelerations\":" << (mt.accelerations ? "true" : "false");
+    out << ",\"profileApplied\":" << (report.hasMachineProfile ? "true" : "false");
+    out << ",\"motion\":"; time(out, mt.motion);
+    out << ",\"toolChangeSec\":"; number(out, mt.toolChangeSec);
+    out << ",\"homeSec\":"; number(out, mt.homeSec);
+    out << ",\"bSec\":"; number(out, mt.bSec);
+    out << ",\"spindleSec\":"; number(out, mt.spindleSec);
+    out << ",\"programStops\":" << report.programStops << ",\"optionalStops\":" << report.optionalStops;
+    out << ",\"notes\":"; array(out, mt.notes, [](std::ostream& o, const std::string& s) { string(o, s); }); out << '}';
     out << "\n}\n";
     output << out.str();
 }

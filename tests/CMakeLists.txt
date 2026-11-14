@@ -19,6 +19,7 @@ add_executable(gca_tests
     test_stage5.cpp
     test_stage6.cpp
     test_stage9.cpp
+    test_stage11.cpp
 )
 target_link_libraries(gca_tests PRIVATE gca_core gca_warnings Catch2::Catch2WithMain)
 # Tests can locate sample programs via this define

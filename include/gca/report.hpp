@@ -130,6 +130,22 @@ struct FileInfo {
 };
 
 struct Report {
+    struct LimitCheck {
+        std::string parameter;
+        std::optional<double> valueMin, valueMax, limitMin, limitMax;
+        std::string status;  ///< ok / error / info
+        std::size_t line = 0;
+    };
+    struct MachineTime {
+        TimeBreakdown motion;
+        double toolChangeSec = 0, homeSec = 0, bSec = 0, spindleSec = 0;
+        bool accelerations = false;
+        std::vector<std::string> notes;
+        [[nodiscard]] double totalSec() const { return motion.totalSec() + toolChangeSec + homeSec + bSec + spindleSec; }
+    };
+    std::vector<LimitCheck> limits;
+    MachineTime machineTime;
+    bool hasMachineProfile = false;
     FileInfo file;
     std::vector<Segment> segments;          ///< executed trajectory in source order
 

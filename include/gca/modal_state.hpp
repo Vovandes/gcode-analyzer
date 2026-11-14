@@ -102,6 +102,11 @@ struct Segment {
     ArcData arc;
     CycleData cycle;
     double dwellSeconds = 0.0;
+    bool limitViolation = false;
+    bool machineCoordinates = false;
+    std::string homeCode;
+    Position intermediate;
+    std::optional<Position> workFrom, workTo; ///< G53 projected into the active WCS, when its offsets are known
 
     // snapshot of the state while the segment is executed
     int tool = 0;

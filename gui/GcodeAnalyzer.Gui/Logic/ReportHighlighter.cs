@@ -15,15 +15,17 @@ public static partial class ReportHighlighter
         string[] lines = text.Replace("\r\n", "\n").Split('\n');
         var result = new string[lines.Length];
         bool inWarnings = false;
+        bool inLimits = false;
         string active = "";
         for (int i = 0; i < lines.Length; i++)
         {
-            if (lines[i].StartsWith("== ")) { inWarnings = lines[i] == "== Предупреждения =="; active = ""; }
+            if (lines[i].StartsWith("== ")) { inWarnings = lines[i] == "== Предупреждения =="; inLimits = lines[i] == "== Пределы станка =="; active = ""; }
             Match match = WarningHeader().Match(lines[i]);
             if (inWarnings && match.Success && int.TryParse(match.Groups[2].Value, out int line))
                 active = levels.GetValueOrDefault((match.Groups[1].Value, line), "");
             else if (string.IsNullOrWhiteSpace(lines[i]) || !lines[i].StartsWith("    ")) active = "";
             result[i] = active;
+            if (inLimits) result[i] = lines[i].StartsWith("  [error] ") ? "error" : lines[i].StartsWith("  [info] ") ? "info" : "";
         }
         return result;
     }
@@ -32,7 +34,9 @@ public static partial class ReportHighlighter
     {
         string[] lines = text.Replace("\r\n", "\n").Split('\n');
         string[] levels = Levels(text, warnings);
-        var rtf = new StringBuilder(@"{\rtf1\ansi\deff0{\fonttbl{\f0 Consolas;}}{\colortbl ;\red0\green0\blue0;\red139\green0\blue0;\red150\green75\blue0;\red70\green130\blue180;}\f0\fs20 ");
+        var error = SeverityStyle.Foreground("error");
+        var rtf = new StringBuilder(@"{\rtf1\ansi\deff0{\fonttbl{\f0 Consolas;}}{\colortbl ;\red0\green0\blue0;");
+        rtf.Append($@"\red{error.R}\green{error.G}\blue{error.B};\red150\green75\blue0;\red70\green130\blue180;}}\f0\fs20 ");
         for (int i = 0; i < lines.Length; i++)
         {
             rtf.Append(@"\cf").Append(levels[i] switch { "error" => 2, "warning" => 3, "info" => 4, _ => 1 }).Append(' ');

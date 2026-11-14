@@ -36,6 +36,7 @@ BlockEffect ModalMachine::apply(const Block& b) {
 
     bool sawDistanceWord = false;
     bool home = false;
+    std::string homeCode;
     bool machineCoords = false;
     bool dwell = false;
     bool nonMotion = false;
@@ -81,6 +82,7 @@ BlockEffect ModalMachine::apply(const Block& b) {
         case GClass::FeedPerMin: st.feedMode = FeedMode::PerMinute; break;
         case GClass::FeedPerRev: st.feedMode = FeedMode::PerRev; break;
         case GClass::Wcs: {
+            const std::string previousWcs = st.wcs;
             const Word* p = b.find('P');
             const bool extended = std::fabs(w.value - 54.1) < 1e-6 || (std::fabs(w.value - 54.0) < 1e-9 && p != nullptr);
             st.wcsSelected = true;
@@ -91,9 +93,18 @@ BlockEffect ModalMachine::apply(const Block& b) {
                 st.wcsP = -1;
                 st.wcs = key;
             }
+            const auto* machine = profile_.machine();
+            if (machine && machine->hasMotionData() && !previousWcs.empty() && previousWcs != st.wcs) {
+                const auto old = machine->wcsOffsets.find(previousWcs), next = machine->wcsOffsets.find(st.wcs);
+                for (std::size_t a = 0; a < 3; ++a) {
+                    if (old != machine->wcsOffsets.end() && next != machine->wcsOffsets.end() && old->second[a] && next->second[a])
+                        st.pos.v[a] += *old->second[a] - *next->second[a];
+                    else st.pos.known[a] = false;
+                }
+            }
             break;
         }
-        case GClass::Home: home = true; break;
+        case GClass::Home: home = true; homeCode = key; break;
         case GClass::MachineCoords: machineCoords = true; break;
         case GClass::SetPosition: setPosition = true; break;
         case GClass::CompOff: st.comp = CompMode::Off; break;
@@ -188,9 +199,23 @@ BlockEffect ModalMachine::apply(const Block& b) {
 
     if (home) {
         Segment seg = makeSegment(SegmentKind::Home, b.lineNo, before);
+        seg.homeCode = homeCode;
+        seg.intermediate = before;
+        const auto* machine = profile_.machine();
+        const auto offset = machine ? machine->wcsOffsets.find(st.wcs) : std::map<std::string, std::array<std::optional<double>, 3>>::const_iterator{};
         for (std::size_t a = 0; a < kAxisCount; ++a) {
             if (mentioned[a] || !anyAxis) {
+                if (target[a]) {
+                    if (st.dist == DistanceMode::Absolute) { seg.intermediate.v[a] = *target[a]; seg.intermediate.known[a] = true; }
+                    else if (seg.intermediate.known[a]) seg.intermediate.v[a] += *target[a];
+                }
                 st.pos.known[a] = false;
+                if (machine) {
+                    const auto reference = homeCode == "G30" ? machine->axes[a].home30 : machine->axes[a].home;
+                    const auto shift = a == 3 ? std::optional<double>(0) :
+                        (offset != machine->wcsOffsets.end() ? offset->second[a] : std::nullopt);
+                    if (reference && shift) { st.pos.v[a] = *reference - *shift; st.pos.known[a] = true; }
+                }
                 seg.axes[a] = true;
             }
         }
@@ -198,9 +223,33 @@ BlockEffect ModalMachine::apply(const Block& b) {
         if (st.dist == DistanceMode::Incremental) st.g91FromG28 = true;
         eff.segments.push_back(std::move(seg));
     } else if (machineCoords) {
+        Segment seg = makeSegment(SegmentKind::Rapid, b.lineNo, before);
+        seg.machineCoordinates = true;
+        seg.axes = mentioned;
+        const auto* machine = profile_.machine();
+        seg.to = before;
         for (std::size_t a = 0; a < kAxisCount; ++a) {
-            if (mentioned[a]) st.pos.known[a] = false;
+            std::optional<double> shift;
+            if (a == 3) shift = 0;
+            else if (machine) {
+                const auto it = machine->wcsOffsets.find(st.wcs);
+                if (it != machine->wcsOffsets.end()) shift = it->second[a];
+            }
+            if (shift && before.known[a]) seg.from.v[a] += *shift; else seg.from.known[a] = false;
+            seg.to.v[a] = seg.from.v[a]; seg.to.known[a] = seg.from.known[a];
+            if (mentioned[a]) {
+                seg.to.v[a] = *target[a]; seg.to.known[a] = true;
+                st.pos.known[a] = shift.has_value();
+                if (shift) st.pos.v[a] = *target[a] - *shift;
+            }
         }
+        // Preserve the historical pipeline when no machine data has been supplied.
+        if (machine) {
+            seg.workFrom = before;
+            seg.workTo = st.pos;
+        }
+        if (machine && machine->hasMotionData())
+            eff.segments.push_back(std::move(seg));
     } else if (dwell) {
         Segment seg = makeSegment(SegmentKind::Dwell, b.lineNo, before);
         if (const Word* x = b.find('X'); x != nullptr && x->hasValue) {

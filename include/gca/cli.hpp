@@ -2,6 +2,7 @@
 #pragma once
 
 #include <iosfwd>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -12,6 +13,7 @@ constexpr int kExitIoError = 1;
 constexpr int kExitBadArguments = 2;
 
 /// args = arguments without the program name. Report/help go to `out`, messages about errors to `err`.
-int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream& err);
+int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream& err,
+           const std::filesystem::path& machinesDirectory = {});
 
 } // namespace gca

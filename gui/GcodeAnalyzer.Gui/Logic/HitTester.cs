@@ -1,6 +1,6 @@
 namespace GcodeAnalyzer.Gui.Logic;
 
-public readonly record struct ProjectedEdge(Point2 A, Point2 B, int SegmentIndex, int Tool, bool Rapid, bool Cycle);
+public readonly record struct ProjectedEdge(Point2 A, Point2 B, int SegmentIndex, int Tool, bool Rapid, bool Cycle, bool LimitViolation = false);
 
 /// <summary>Сетка в мм не перестраивается при zoom/pan. Длинные линии храним отдельно.</summary>
 public sealed class HitTester

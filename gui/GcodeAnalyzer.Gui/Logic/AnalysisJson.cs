@@ -27,6 +27,10 @@ public static class AnalysisJson
         foreach (var warning in data.Warnings)
             if (warning is null || warning.Severity is not ("error" or "warning" or "info"))
                 throw new JsonException("Неизвестный уровень предупреждения.");
+        if (data.Limits is null || data.Limits.Any(c => c is null || c.Line < 1 || c.Status is not ("ok" or "error" or "info")))
+            throw new JsonException("Некорректная проверка пределов.");
+        if (data.Segments.Any(s => (s.WorkStart is not null && s.WorkStart.Length != 3) ||
+            (s.WorkEnd is not null && s.WorkEnd.Length != 3))) throw new JsonException("Некорректные координаты G53.");
         return data;
     }
 }
@@ -39,6 +43,8 @@ public sealed class AnalysisData
     public required WarningItem[] Warnings { get; init; }
     public required ToolInfo[] Tools { get; init; }
     public required TimeInfo Time { get; init; }
+    public LimitCheck[] Limits { get; init; } = [];
+    public MachineTimeInfo? MachineTime { get; init; }
 }
 
 public sealed class AnalysisFile
@@ -68,6 +74,36 @@ public sealed class Segment
     public required double? B { get; init; }
     public double? DwellSec { get; init; }
     public CycleInfo? Cycle { get; init; }
+    public bool LimitViolation { get; init; }
+    public bool MachineCoordinates { get; init; }
+    public double?[]? WorkStart { get; init; }
+    public double?[]? WorkEnd { get; init; }
+}
+
+public sealed class LimitCheck
+{
+    public required string Parameter { get; init; }
+    public double? ValueMin { get; init; }
+    public double? ValueMax { get; init; }
+    public double? LimitMin { get; init; }
+    public double? LimitMax { get; init; }
+    public required string Status { get; init; }
+    public int Line { get; init; }
+}
+
+public sealed class MachineTimeInfo
+{
+    public double TotalSec { get; init; }
+    public bool Accelerations { get; init; }
+    public bool ProfileApplied { get; init; }
+    public required TimeInfo Motion { get; init; }
+    public double ToolChangeSec { get; init; }
+    public double HomeSec { get; init; }
+    public double BSec { get; init; }
+    public double SpindleSec { get; init; }
+    public int ProgramStops { get; init; }
+    public int OptionalStops { get; init; }
+    public string[] Notes { get; init; } = [];
 }
 
 public sealed class CycleInfo

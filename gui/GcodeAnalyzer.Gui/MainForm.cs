@@ -15,6 +15,10 @@ public class MainForm : Form
     private readonly RadioButton _saveRadio = new() { Text = "Сохранить в .txt", AutoSize = true };
     private readonly CheckBox _bomCheck = new() { Text = "BOM для Блокнота", AutoSize = true };
     private readonly ComboBox _machineCombo = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 220 };
+    private readonly Button _profileButton = new() { Text = "Открыть профиль…", AutoSize = true };
+    private readonly MachineProfileSelection _profileSelection = new();
+    private readonly MachineLimitsView _limitsView = new() { Dock = DockStyle.Fill };
+    private readonly TabPage _limitsTab = new("Пределы станка") { Name = "limits" };
     private readonly TextBox _extraBox = new() { Dock = DockStyle.Fill };
     private readonly TextBox _exeBox = new() { Dock = DockStyle.Fill };
     private readonly Button _exeButton = new() { Text = "…", AutoSize = true };
@@ -63,6 +67,7 @@ public class MainForm : Form
         _saveAsButton.Click += async (_, _) => await SaveAsTxtAsync();
         _helpButton.Click += async (_, _) => await ShowHelpAsync();
         _exeButton.Click += (_, _) => ChooseExe();
+        _profileButton.Click += (_, _) => ChooseProfile();
         _sectionList.SelectedIndexChanged += (_, _) => JumpToSection();
         _saveRadio.CheckedChanged += (_, _) => _bomCheck.Enabled = _saveRadio.Checked;
         DragEnter += OnDragEnter;
@@ -97,7 +102,7 @@ public class MainForm : Form
         row2.Controls.AddRange(new Control[]
         {
             _showRadio, _saveRadio, _bomCheck,
-            new Label { Text = "Профиль станка:", AutoSize = true, Margin = new Padding(20, 6, 0, 0) }, _machineCombo,
+            new Label { Text = "Профиль станка:", AutoSize = true, Margin = new Padding(20, 6, 0, 0) }, _machineCombo, _profileButton,
             _runButton, _saveAsButton, _helpButton,
         });
 
@@ -121,8 +126,9 @@ public class MainForm : Form
         split.Panel2.Controls.Add(_reportBox);
         _reportTab.Controls.Add(split);
         _trajectoryTab.Controls.Add(_workspace);
-        _tabs.TabPages.AddRange(_settings.ReportFirst ? [_reportTab, _trajectoryTab] : [_trajectoryTab, _reportTab]);
-        _tabs.SelectedTab = _settings.ActiveTab == "report" ? _reportTab : _trajectoryTab;
+        _limitsTab.Controls.Add(_limitsView);
+        _tabs.TabPages.AddRange(_settings.ReportFirst ? [_reportTab, _trajectoryTab, _limitsTab] : [_trajectoryTab, _reportTab, _limitsTab]);
+        _tabs.SelectedTab = _settings.ActiveTab == "report" ? _reportTab : _settings.ActiveTab == "limits" ? _limitsTab : _trajectoryTab;
         var tabsMenu = new ContextMenuStrip();
         tabsMenu.Items.Add("Поменять вкладки местами", null, (_, _) =>
         {
@@ -130,7 +136,7 @@ public class MainForm : Form
             TabPage? selected = _tabs.SelectedTab;
             _settings.ReportFirst = !_settings.ReportFirst;
             _tabs.TabPages.Clear();
-            _tabs.TabPages.AddRange(_settings.ReportFirst ? [_reportTab, _trajectoryTab] : [_trajectoryTab, _reportTab]);
+            _tabs.TabPages.AddRange(_settings.ReportFirst ? [_reportTab, _trajectoryTab, _limitsTab] : [_trajectoryTab, _reportTab, _limitsTab]);
             _tabs.SelectedTab = selected;
         });
         _tabs.ContextMenuStrip = tabsMenu;
@@ -187,6 +193,19 @@ public class MainForm : Form
         if (dialog.ShowDialog(this) == DialogResult.OK) _exeBox.Text = dialog.FileName;
     }
 
+    private void ChooseProfile()
+    {
+        using var dialog = new OpenFileDialog { Filter = "Профили станков (*.ini)|*.ini|Все файлы|*.*" };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        _profileSelection.Open(dialog.FileName);
+        int index = _machines.Count + 1;
+        if (_machineCombo.Items.Count > index) _machineCombo.Items[index] = _profileSelection.FileLabel;
+        else _machineCombo.Items.Add(_profileSelection.FileLabel);
+        _machineCombo.SelectedIndex = index;
+    }
+
+    private string? SelectedMachineFile => _profileSelection.SelectedFile(_machineCombo.SelectedIndex, _machines.Count);
+
     /// <summary>Выбранный в списке id станка; "auto", если выбрано «Авто».</summary>
     private string SelectedMachineId =>
         _machineCombo.SelectedIndex > 0 && _machineCombo.SelectedIndex <= _machines.Count
@@ -225,6 +244,7 @@ public class MainForm : Form
         _fileLabel.Text = path;
         _settings.LastFolder = Path.GetDirectoryName(path) ?? "";
         _workspace.ClearAnalysis();
+        _limitsView.ShowChecks([]);
         _reportBox.Clear(); _sectionList.Items.Clear(); _sections.Clear();
         // В режиме «Показать» анализ стартует сразу; в режиме «Сохранить» ждём кнопку
         if (_showRadio.Checked) _ = RunAnalysisAsync();
@@ -248,7 +268,7 @@ public class MainForm : Form
                 // Режим «Сохранить в .txt»: просим путь и отдаём его в --out
                 string? target = AskSavePath();
                 if (target == null) return;
-                RunResult run = await runner.AnalyzeToFileAsync(_inputFile, target, SelectedMachineId, _bomCheck.Checked, _extraBox.Text);
+                RunResult run = await runner.AnalyzeToFileAsync(_inputFile, target, SelectedMachineId, _bomCheck.Checked, _extraBox.Text, SelectedMachineFile);
                 ShowRunResult(run, $"Отчёт сохранён: {target}");
                 if (run.ExitCode == 0)
                     await ShowAnalysisAsync(input, await File.ReadAllTextAsync(target), run.Analysis);
@@ -256,7 +276,7 @@ public class MainForm : Form
             else
             {
                 // Режим «Показать»: отчёт через временный файл, читаем как UTF-8
-                (RunResult run, string report) = await runner.AnalyzeToMemoryAsync(_inputFile, SelectedMachineId, _extraBox.Text);
+                (RunResult run, string report) = await runner.AnalyzeToMemoryAsync(_inputFile, SelectedMachineId, _extraBox.Text, SelectedMachineFile);
                 ShowRunResult(run, "Готово");
                 if (run.ExitCode == 0) await ShowAnalysisAsync(input, report, run.Analysis);
             }
@@ -280,7 +300,7 @@ public class MainForm : Form
         SetBusy(true);
         try
         {
-            RunResult run = await runner.AnalyzeToFileAsync(_inputFile, target, SelectedMachineId, _bomCheck.Checked, _extraBox.Text);
+            RunResult run = await runner.AnalyzeToFileAsync(_inputFile, target, SelectedMachineId, _bomCheck.Checked, _extraBox.Text, SelectedMachineFile);
             ShowRunResult(run, $"Отчёт сохранён: {target}");
         }
         finally
@@ -336,6 +356,7 @@ public class MainForm : Form
             Rtf: ReportHighlighter.ToRtf(report, analysis.Warnings)));
         if (IsDisposed) return;
         _workspace.SetAnalysis(prepared.Scene, prepared.Lines, analysis.Warnings);
+        _limitsView.ShowChecks(analysis.Limits);
         ShowReport(prepared.Rtf);
     }
 
@@ -373,7 +394,7 @@ public class MainForm : Form
     private void SetBusy(bool busy)
     {
         _busy = busy;
-        foreach (Control c in new Control[] { _openButton, _runButton, _saveAsButton, _helpButton, _exeButton })
+        foreach (Control c in new Control[] { _openButton, _runButton, _saveAsButton, _helpButton, _exeButton, _profileButton, _machineCombo })
             c.Enabled = !busy;
         if (!busy) _saveAsButton.Enabled = _reportBox.TextLength > 0;
         if (busy) { _status.Text = "Анализ…"; _errorBox.Visible = false; }

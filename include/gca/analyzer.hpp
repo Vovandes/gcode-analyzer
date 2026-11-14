@@ -24,6 +24,9 @@ struct AnalysisOptions {
     std::string dialect = "fanuc-mill"; ///< dialect/profile id
     double rapidFeedMmPerMin = 10000.0; ///< G0 rate for time estimate
     std::string machine = "auto";       ///< machine profile id, "auto" = detect by "Generated for ..."
+    std::filesystem::path machinesDirectory;
+    std::optional<std::filesystem::path> machineFile;
+    std::map<std::string, std::array<std::optional<double>, 3>> wcsOffsets;
 };
 
 /// Input file cannot be read.

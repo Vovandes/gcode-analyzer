@@ -140,7 +140,8 @@ public class ReportParserTests
         string text = ReportParser.NormalizeNewlines(Golden("sample-01-skymaster-vl1100a.txt"));
         var sections = ReportParser.ParseSections(text);
 
-        Assert.Equal(12, sections.Count);
+        Assert.Equal(13, sections.Count);
+        Assert.Contains(sections, s => s.Title == "Пределы станка");
         Assert.Equal("Файл", sections[0].Title);
         Assert.Equal("Инструменты", sections[1].Title);
         Assert.Contains(sections, s => s.Title.StartsWith("Время обработки"));

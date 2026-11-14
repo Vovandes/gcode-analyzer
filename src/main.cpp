@@ -2,6 +2,7 @@
 // Windows-only part: UTF-8 console and UTF-8 command-line arguments (so Cyrillic paths and the Russian
 // report work in cmd and PowerShell without chcp). Nothing platform-specific lives in gca_core.
 #include "gca/cli.hpp"
+#include "gca/path_util.hpp"
 
 #include <cstdio>
 #include <iostream>
@@ -64,13 +65,17 @@ int main(int argc, char* argv[]) {
     (void)argv;
     const ConsoleUtf8 console;
     const std::vector<std::string> args = utf8Arguments();
+    std::vector<wchar_t> module(32768);
+    const DWORD length = GetModuleFileNameW(nullptr, module.data(), static_cast<DWORD>(module.size()));
+    const auto executable = std::filesystem::path(std::wstring(module.data(), length));
 #else
     const std::vector<std::string> args(argv + 1, argv + argc);
+    const auto executable = std::filesystem::absolute(gca::pathFromUtf8(argv[0]));
 #endif
     // Full buffering: multi-byte characters are not split at write boundaries on the console.
     static char buffer[1 << 16];
     std::setvbuf(stdout, buffer, _IOFBF, sizeof buffer);
-    const int code = gca::runCli(args, std::cout, std::cerr);
+    const int code = gca::runCli(args, std::cout, std::cerr, executable.parent_path() / "machines");
     std::cout.flush();
     std::fflush(stdout);
     return code;
