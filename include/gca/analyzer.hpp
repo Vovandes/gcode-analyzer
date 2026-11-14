@@ -43,5 +43,7 @@ struct OptionError : std::invalid_argument {
                                  const AnalysisOptions& options);
 /// Read a file, analyze it, return the text report. Throws IoError / OptionError.
 [[nodiscard]] std::string analyzeFile(const std::filesystem::path& input, const AnalysisOptions& options);
+/// Read and analyze once; the same model feeds text and JSON writers.
+[[nodiscard]] Report analyzeFileReport(const std::filesystem::path& input, const AnalysisOptions& options);
 
 } // namespace gca

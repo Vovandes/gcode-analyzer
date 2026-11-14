@@ -112,6 +112,7 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
         const Block& block = program.blocks[i];
         const ModalState before = machineState.state();
         const BlockEffect effect = machineState.apply(block);
+        report.segments.insert(report.segments.end(), effect.segments.begin(), effect.segments.end());
         const BlockContext ctx{block, i, before, machineState.state(), effect, profile};
         for (auto& a : analyzers) {
             a->onBlock(ctx);
@@ -128,13 +129,16 @@ Report analyzeText(std::string_view text, const std::string& fileName, const Ana
     return analyzeProgram(program, fileName, options);
 }
 
-std::string analyzeFile(const std::filesystem::path& input, const AnalysisOptions& options) {
+Report analyzeFileReport(const std::filesystem::path& input, const AnalysisOptions& options) {
     std::ifstream in(input, std::ios::binary);
     if (!in) throw IoError("cannot open input file: " + pathToUtf8(input));
     const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     if (in.bad()) throw IoError("cannot read input file: " + pathToUtf8(input));
-    const Report report = analyzeText(text, pathToUtf8(input.filename()), options);
-    return renderTextReport(report);
+    return analyzeText(text, pathToUtf8(input.filename()), options);
+}
+
+std::string analyzeFile(const std::filesystem::path& input, const AnalysisOptions& options) {
+    return renderTextReport(analyzeFileReport(input, options));
 }
 
 } // namespace gca

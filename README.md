@@ -10,6 +10,8 @@
 
 Страница [Releases](../../releases) → `gcode-analyzer-<версия>-win-x64.zip`. Ничего устанавливать не нужно (ни Visual C++, ни .NET), работает на Windows 10/11 x64. Распакуйте куда угодно — в том числе на флешку и в путь с русскими буквами и пробелами.
 
+С версии 0.9.0 окно включает .NET 10. Для старой Windows 10 без поддержки CET используйте `gcode-analyzer-<версия>-win-x64-compat.zip`: у окна отключён CET, CLI одинаковый в обоих архивах. Совместимость с конкретной машиной KEDE Probe нужно проверить на ней.
+
 В папке:
 - `GcodeAnalyzerGui.exe` — окно;
 - `gcode-analyzer.exe` — консольный анализатор;
@@ -32,6 +34,7 @@
 gcode-analyzer.exe program.nc                       :: отчёт в консоль
 gcode-analyzer.exe program.nc --out report.txt      :: отчёт в файл (UTF-8)
 gcode-analyzer.exe program.nc --out report.txt --bom :: с BOM для Блокнота
+gcode-analyzer.exe program.nc --out report.txt --json analysis.json :: TXT и JSON за один анализ
 gcode-analyzer.exe program.nc --rapid 15000         :: скорость G0 для оценки времени, мм/мин (по умолчанию 10000)
 gcode-analyzer.exe program.nc --machine auto        :: профиль станка (auto — по комментарию «Generated for ...»)
 gcode-analyzer.exe --list-machines                  :: профили станков
@@ -41,11 +44,13 @@ gcode-analyzer.exe --help | --version | --list-options
 Консоль Windows сама переключается на UTF-8: русский текст и пути с кириллицей и пробелами работают без `chcp`.
 Коды возврата: 0 — успех, 1 — ошибка ввода-вывода, 2 — ошибка аргументов.
 
+`--json` пишет UTF-8 без BOM независимо от `--bom`; описание полей — [docs/JSON.md](docs/JSON.md). Текстовый отчёт сохраняет прежний формат.
+
 Машинно-специфичные коды берутся из профиля станка: Sky Master VL1100A (`M15` — дополнительная подача СОЖ), Bridgeport 1300/480 (`M53` — СОЖ через шпиндель).
 
 ## Сборка из исходников
 
-C++: CMake ≥ 3.21 и компилятор C++20 (GCC 11+, Clang 14+, MSVC 2022+). Окно: .NET 8 SDK (только Windows).
+C++: CMake ≥ 3.21 и компилятор C++20 (GCC 11+, Clang 14+, MSVC 2022+). Окно: .NET 10 SDK (только Windows). `global.json` выбирает последний установленный стабильный SDK 10.0, начиная с 10.0.100.
 
 ```bash
 cmake --preset debug && cmake --build --preset debug && ctest --preset debug              # Linux
@@ -53,6 +58,8 @@ cmake --preset msvc  && cmake --build --preset msvc-debug && ctest --preset msvc
 dotnet build gui/GcodeAnalyzer.sln -c Debug && dotnet test gui/GcodeAnalyzer.sln -c Debug  # окно
 powershell -ExecutionPolicy Bypass -File scripts/package.ps1                               # портативный zip в dist/
 ```
+
+Упаковка по умолчанию создаёт оба zip. Для одного варианта: `scripts/package.ps1 -Variant standard` или `-Variant compat`. Проверка архива: `scripts/smoke-package.ps1 -Zip dist/<имя>.zip`; проверка CET: `scripts/check-cet.ps1 -Exe <путь> -Expect on|off`. Скрипты поддерживают PowerShell 5.1; старые каталоги сборок и посторонние архивы не удаляются.
 
 ## Выпуск версии
 

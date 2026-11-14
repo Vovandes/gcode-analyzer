@@ -4,6 +4,8 @@
 
 #include <map>
 #include <set>
+#include <array>
+#include <string_view>
 
 namespace gca {
 
@@ -28,6 +30,35 @@ constexpr const char* kCycleIncomplete = "W016";  ///< cycle without Z or R
 constexpr const char* kChangeNoTool = "W017";     ///< M6 without a tool number
 constexpr const char* kArc = "W018";              ///< arc geometry problem
 } // namespace warn
+
+enum class Severity { Error, Warning, Info };
+struct WarningLevel {
+    std::string_view code;
+    Severity severity;
+};
+inline constexpr std::array<WarningLevel, 18> kWarningLevels{{
+    {warn::kNoWcs, Severity::Warning}, {warn::kWcsZero, Severity::Warning},
+    {warn::kWcsChange, Severity::Warning}, {warn::kNoSpindle, Severity::Error},
+    {warn::kNoFeed, Severity::Error}, {warn::kG43NoH, Severity::Warning},
+    {warn::kHNotT, Severity::Warning}, {warn::kChangeComp, Severity::Error},
+    {warn::kCompRapid, Severity::Error}, {warn::kG91AfterG28, Severity::Error},
+    {warn::kCycleActive, Severity::Error}, {warn::kUnknownCode, Severity::Warning},
+    {warn::kUnparsed, Severity::Info}, {warn::kInch, Severity::Warning},
+    {warn::kNoMotionCode, Severity::Info}, {warn::kCycleIncomplete, Severity::Error},
+    {warn::kChangeNoTool, Severity::Error}, {warn::kArc, Severity::Error}
+}};
+[[nodiscard]] constexpr Severity warningSeverity(std::string_view code) {
+    for (const auto& level : kWarningLevels) if (level.code == code) return level.severity;
+    return Severity::Warning;
+}
+[[nodiscard]] constexpr std::string_view severityName(Severity severity) {
+    switch (severity) {
+    case Severity::Error: return "error";
+    case Severity::Warning: return "warning";
+    case Severity::Info: return "info";
+    }
+    return "warning";
+}
 
 class WarningsAnalyzer final : public IAnalyzer {
 public:

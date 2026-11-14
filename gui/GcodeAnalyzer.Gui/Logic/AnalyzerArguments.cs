@@ -12,7 +12,8 @@ public static class AnalyzerArguments
     /// Каждый элемент списка — отдельный аргумент; кавычки не нужны:
     /// ProcessStartInfo.ArgumentList сам экранирует пробелы и кириллицу.
     /// </summary>
-    public static List<string> Build(string inputFile, string outFile, string? machineId, bool bom, string? extraArguments)
+    public static List<string> Build(string inputFile, string outFile, string? machineId, bool bom, string? extraArguments,
+        string? jsonFile = null)
     {
         var args = new List<string> { inputFile };
         args.AddRange(ArgumentSplitter.Split(extraArguments));
@@ -26,6 +27,11 @@ public static class AnalyzerArguments
 
         args.Add("--out");
         args.Add(outFile);
+        if (jsonFile != null)
+        {
+            args.Add("--json");
+            args.Add(jsonFile);
+        }
         return args;
     }
 }

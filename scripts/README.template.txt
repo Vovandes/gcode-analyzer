@@ -2,6 +2,7 @@ GcodeAnalyzer {VERSION} — анализатор управляющих прог
 ==============================================================================
 
 Ничего устанавливать не нужно: ни Visual C++, ни .NET. Работает на Windows 10 x64.
+Окно включает .NET 10. Сборка: {VARIANT}.
 Папку можно распаковать куда угодно (в том числе на флешку, в путь с русскими буквами и пробелами).
 
 1. Окно (самый простой способ)
@@ -13,6 +14,7 @@ GcodeAnalyzer {VERSION} — анализатор управляющих прог
 2. Консоль (cmd или PowerShell), перейдите в эту папку:
    gcode-analyzer.exe samples\sample-01-skymaster-vl1100a.nc
    gcode-analyzer.exe samples\sample-01-skymaster-vl1100a.nc --out report.txt
+   gcode-analyzer.exe samples\sample-01-skymaster-vl1100a.nc --out report.txt --json analysis.json
    gcode-analyzer.exe samples\sample-02-bridgeport-1300-480.nc --rapid 15000 --out report.txt
    gcode-analyzer.exe samples\sample-01-skymaster-vl1100a.nc --machine auto
    gcode-analyzer.exe --help          (все аргументы)

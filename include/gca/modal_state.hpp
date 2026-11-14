@@ -94,6 +94,7 @@ struct CycleData {
 
 struct Segment {
     SegmentKind kind = SegmentKind::Rapid;
+    Plane plane = Plane::XY;              ///< active plane for every segment kind
     std::size_t lineNo = 0;
     Position from;
     Position to;

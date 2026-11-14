@@ -7,6 +7,7 @@ namespace gca {
 const std::vector<OptionInfo>& cliOptions() {
     static const std::vector<OptionInfo> options = {
         {"--out", "-o", "<файл>", "", "записать отчёт в текстовый файл UTF-8 вместо вывода в консоль"},
+        {"--json", "", "<файл>", "", "записать машиночитаемый JSON (схема 1, UTF-8 без BOM)"},
         {"--bom", "", "", "", "добавить BOM (EF BB BF) в начало файла --out (для старого Блокнота и Excel)"},
         {"--dialect", "", "<id>", "fanuc-mill", "профиль стойки ЧПУ"},
         {"--machine", "", "<id|auto>", "auto", "профиль станка; auto - определить по комментарию «Generated for ...»"},

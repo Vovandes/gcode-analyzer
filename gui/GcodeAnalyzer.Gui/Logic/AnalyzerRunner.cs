@@ -1,12 +1,16 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 
 namespace GcodeAnalyzer.Gui.Logic;
 
 /// <summary>Результат запуска gcode-analyzer.exe.</summary>
 /// <param name="ExitCode">0 — успех, 1 — ошибка ввода-вывода, 2 — ошибка аргументов, -1 — не удалось запустить.</param>
-public record RunResult(int ExitCode, string StdOut, string StdErr);
+public record RunResult(int ExitCode, string StdOut, string StdErr)
+{
+    public AnalysisData? Analysis { get; init; }
+}
 
 /// <summary>Запускает gcode-analyzer.exe дочерним процессом. Анализ не дублируется в GUI.</summary>
 public class AnalyzerRunner
@@ -55,10 +59,11 @@ public class AnalyzerRunner
         string inputFile, string? machineId, string? extraArguments)
     {
         string tempFile = Path.Combine(Path.GetTempPath(), $"gca-{Guid.NewGuid():N}.txt");
+        string jsonFile = Path.Combine(Path.GetTempPath(), $"gca-{Guid.NewGuid():N}.json");
         try
         {
-            var args = AnalyzerArguments.Build(inputFile, tempFile, machineId, bom: false, extraArguments);
-            RunResult run = await RunAsync(args);
+            var args = AnalyzerArguments.Build(inputFile, tempFile, machineId, bom: false, extraArguments, jsonFile);
+            RunResult run = await ReadAnalysisAsync(await RunAsync(args), jsonFile);
             string report = run.ExitCode == 0 && File.Exists(tempFile)
                 ? await File.ReadAllTextAsync(tempFile, Encoding.UTF8)
                 : "";
@@ -67,11 +72,36 @@ public class AnalyzerRunner
         finally
         {
             if (File.Exists(tempFile)) File.Delete(tempFile);
+            if (File.Exists(jsonFile)) File.Delete(jsonFile);
         }
     }
 
     /// <summary>Анализ с записью отчёта прямо в выбранный пользователем .txt.</summary>
-    public Task<RunResult> AnalyzeToFileAsync(
-        string inputFile, string outFile, string? machineId, bool bom, string? extraArguments) =>
-        RunAsync(AnalyzerArguments.Build(inputFile, outFile, machineId, bom, extraArguments));
+    public async Task<RunResult> AnalyzeToFileAsync(
+        string inputFile, string outFile, string? machineId, bool bom, string? extraArguments)
+    {
+        string jsonFile = Path.Combine(Path.GetTempPath(), $"gca-{Guid.NewGuid():N}.json");
+        try
+        {
+            var args = AnalyzerArguments.Build(inputFile, outFile, machineId, bom, extraArguments, jsonFile);
+            return await ReadAnalysisAsync(await RunAsync(args), jsonFile);
+        }
+        finally
+        {
+            if (File.Exists(jsonFile)) File.Delete(jsonFile);
+        }
+    }
+
+    private static async Task<RunResult> ReadAnalysisAsync(RunResult run, string jsonFile)
+    {
+        if (run.ExitCode != 0) return run;
+        try
+        {
+            return run with { Analysis = AnalysisJson.Parse(await File.ReadAllTextAsync(jsonFile, Encoding.UTF8)) };
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return run with { ExitCode = -1, StdErr = $"Не удалось прочитать JSON анализа: {e.Message}" };
+        }
+    }
 }

@@ -5,6 +5,7 @@
 #include "gca/lexer.hpp"
 #include "gca/options.hpp"
 #include "gca/path_util.hpp"
+#include "gca/json_report.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -43,12 +44,22 @@ std::string machinesText(const IDialect& dialect) {
     return s;
 }
 
+bool sameFile(const std::filesystem::path& a, const std::filesystem::path& b) {
+    std::error_code ec;
+    if (std::filesystem::equivalent(a, b, ec)) return true;
+    const auto left = std::filesystem::absolute(a, ec).lexically_normal();
+    if (ec) return false;
+    const auto right = std::filesystem::absolute(b, ec).lexically_normal();
+    return !ec && left == right;
+}
+
 } // namespace
 
 int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream& err) {
     AnalysisOptions options;
     OutputOptions output;
     std::optional<std::filesystem::path> input;
+    std::optional<std::filesystem::path> jsonFile;
     bool bom = false;
     bool wantHelp = false, wantVersion = false, wantOptions = false, wantMachines = false;
 
@@ -64,6 +75,11 @@ int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
         if (a == "--list-options") { wantOptions = true; continue; }
         if (a == "--list-machines") { wantMachines = true; continue; }
         if (a == "--bom") { bom = true; continue; }
+        if (a == "--json") {
+            if (!needValue()) return kExitBadArguments;
+            jsonFile = pathFromUtf8(args[++i]);
+            continue;
+        }
         if (a == "--out" || a == "-o") {
             if (!needValue()) return kExitBadArguments;
             output.outFile = pathFromUtf8(args[++i]);
@@ -115,9 +131,15 @@ int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
         return kExitBadArguments;
     }
 
-    std::string report;
+    if (jsonFile && (sameFile(*jsonFile, *input) ||
+                     (output.outFile && sameFile(*jsonFile, *output.outFile)))) {
+        err << "Путь --json должен отличаться от входного файла и --out\n";
+        return kExitBadArguments;
+    }
+
+    Report report;
     try {
-        report = analyzeFile(*input, options);
+        report = analyzeFileReport(*input, options);
     } catch (const IoError& e) {
         err << "Ошибка ввода-вывода: " << e.what() << '\n';
         return kExitIoError;
@@ -125,7 +147,11 @@ int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
         err << "Ошибка аргументов: " << e.what() << '\n';
         return kExitBadArguments;
     }
-    return emit(report, output.outFile, bom, "Отчёт записан", out, err);
+    if (jsonFile) {
+        const int code = writeFile(*jsonFile, renderJsonReport(report), false, err);
+        if (code != kExitOk) return code;
+    }
+    return emit(renderTextReport(report), output.outFile, bom, "Отчёт записан", out, err);
 }
 
 } // namespace gca

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "gca/dialect.hpp"
+#include "gca/modal_state.hpp"
 
 #include <array>
 #include <iosfwd>
@@ -130,6 +131,7 @@ struct FileInfo {
 
 struct Report {
     FileInfo file;
+    std::vector<Segment> segments;          ///< executed trajectory in source order
 
     std::vector<ToolUse> toolSequence;
     std::vector<int> preselectSequence;

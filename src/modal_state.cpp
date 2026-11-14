@@ -13,6 +13,7 @@ bool hasDecimalPoint(const Word& w) { return w.rawText.find('.') != std::string:
 Segment ModalMachine::makeSegment(SegmentKind kind, std::size_t lineNo, const Position& from) const {
     Segment s;
     s.kind = kind;
+    s.plane = state_.plane;
     s.lineNo = lineNo;
     s.from = from;
     s.to = state_.pos;
