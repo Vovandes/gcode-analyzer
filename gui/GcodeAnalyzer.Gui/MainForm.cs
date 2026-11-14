@@ -1,11 +1,12 @@
 using GcodeAnalyzer.Gui.Logic;
+using GcodeAnalyzer.Gui.Controls;
 
 namespace GcodeAnalyzer.Gui;
 
 /// <summary>Главное окно. Форма тонкая: только элементы управления и вызовы классов из Logic.</summary>
 public class MainForm : Form
 {
-    private readonly AppSettings _settings = AppSettings.Load();
+    private readonly AppSettings _settings;
 
     // Элементы управления
     private readonly Button _openButton = new() { Text = "Открыть…", AutoSize = true };
@@ -22,9 +23,9 @@ public class MainForm : Form
     private readonly Button _helpButton = new() { Text = "Справка по аргументам", AutoSize = true };
     private readonly Label _machineLabel = new() { Text = "Станок: —", AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly ListBox _sectionList = new() { Dock = DockStyle.Fill };
-    private readonly TextBox _reportBox = new()
+    private readonly RichTextBox _reportBox = new()
     {
-        Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both,
+        Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = RichTextBoxScrollBars.Both,
         WordWrap = false, Font = new Font("Consolas", 10), HideSelection = false, // текст можно выделять и копировать
     };
     private readonly TextBox _errorBox = new()
@@ -33,6 +34,11 @@ public class MainForm : Form
         ForeColor = Color.Firebrick, Visible = false,
     };
     private readonly Label _status = new() { Text = "Готово", AutoSize = true };
+    private readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
+    private readonly TabPage _trajectoryTab = new("Траектория и программа") { Name = "trajectory" };
+    private readonly TabPage _reportTab = new("Отчёт") { Name = "report" };
+    private readonly TrajectoryWorkspace _workspace;
+    private readonly SplitContainer _reportSplit = new() { Dock = DockStyle.Fill, Size = new(1100, 500), SplitterDistance = 230 };
 
     // Состояние
     private string? _inputFile;
@@ -40,13 +46,17 @@ public class MainForm : Form
     private List<MachineInfo> _machines = new();
     private bool _busy;
 
-    public MainForm()
+    public MainForm(AppSettings? settings = null)
     {
+        _settings = settings ?? AppSettings.Load();
+        _workspace = new TrajectoryWorkspace(_settings) { Dock = DockStyle.Fill };
         Text = "GcodeAnalyzer " + AppVersion.Current;
-        Size = new Size(1100, 750);
+        Size = new Size(1280, 900);
+        MinimumSize = new Size(900, 650);
         AllowDrop = true; // разрешаем перетаскивать файлы на окно
 
         BuildLayout();
+        _workspace.StatusChanged += text => _status.Text = text;
 
         _openButton.Click += (_, _) => OpenFileDialogAndRun();
         _runButton.Click += async (_, _) => await RunAnalysisAsync();
@@ -57,7 +67,13 @@ public class MainForm : Form
         _saveRadio.CheckedChanged += (_, _) => _bomCheck.Enabled = _saveRadio.Checked;
         DragEnter += OnDragEnter;
         DragDrop += OnDragDrop;
-        Shown += async (_, _) => await OnShownAsync();
+        Shown += async (_, _) =>
+        {
+            double ratio = double.IsFinite(_settings.ReportSplitRatio) ? Math.Clamp(_settings.ReportSplitRatio, .1, .8) : .2;
+            _reportSplit.SplitterDistance = Math.Clamp((int)(_reportSplit.Width * ratio),
+                _reportSplit.Panel1MinSize, Math.Max(_reportSplit.Panel1MinSize, _reportSplit.Width - _reportSplit.Panel2MinSize - _reportSplit.SplitterWidth));
+            await OnShownAsync();
+        };
         FormClosing += (_, _) => SaveSettings();
 
         // Восстанавливаем сохранённые настройки
@@ -100,15 +116,30 @@ public class MainForm : Form
         infoRow.Controls.AddRange(new Control[] { _machineLabel });
 
         // Центр: слева список разделов, справа текст отчёта
-        var split = new SplitContainer { Dock = DockStyle.Fill, SplitterDistance = 230 };
+        var split = _reportSplit;
         split.Panel1.Controls.Add(_sectionList);
         split.Panel2.Controls.Add(_reportBox);
+        _reportTab.Controls.Add(split);
+        _trajectoryTab.Controls.Add(_workspace);
+        _tabs.TabPages.AddRange(_settings.ReportFirst ? [_reportTab, _trajectoryTab] : [_trajectoryTab, _reportTab]);
+        _tabs.SelectedTab = _settings.ActiveTab == "report" ? _reportTab : _trajectoryTab;
+        var tabsMenu = new ContextMenuStrip();
+        tabsMenu.Items.Add("Поменять вкладки местами", null, (_, _) =>
+        {
+            _workspace.SaveLayout();
+            TabPage? selected = _tabs.SelectedTab;
+            _settings.ReportFirst = !_settings.ReportFirst;
+            _tabs.TabPages.Clear();
+            _tabs.TabPages.AddRange(_settings.ReportFirst ? [_reportTab, _trajectoryTab] : [_trajectoryTab, _reportTab]);
+            _tabs.SelectedTab = selected;
+        });
+        _tabs.ContextMenuStrip = tabsMenu;
 
         var statusBar = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, Padding = new Padding(6, 2, 6, 2) };
         statusBar.Controls.Add(_status);
 
         // Порядок добавления важен: Dock-элементы раскладываются с последнего к первому
-        Controls.Add(split);
+        Controls.Add(_tabs);
         Controls.Add(_errorBox);
         Controls.Add(statusBar);
         Controls.Add(infoRow);
@@ -189,9 +220,12 @@ public class MainForm : Form
 
     private void SetInputFileAndRun(string path)
     {
+        if (_busy) return;
         _inputFile = path;
         _fileLabel.Text = path;
         _settings.LastFolder = Path.GetDirectoryName(path) ?? "";
+        _workspace.ClearAnalysis();
+        _reportBox.Clear(); _sectionList.Items.Clear(); _sections.Clear();
         // В режиме «Показать» анализ стартует сразу; в режиме «Сохранить» ждём кнопку
         if (_showRadio.Checked) _ = RunAnalysisAsync();
     }
@@ -208,6 +242,7 @@ public class MainForm : Form
         SetBusy(true);
         try
         {
+            string input = _inputFile;
             if (_saveRadio.Checked)
             {
                 // Режим «Сохранить в .txt»: просим путь и отдаём его в --out
@@ -215,15 +250,19 @@ public class MainForm : Form
                 if (target == null) return;
                 RunResult run = await runner.AnalyzeToFileAsync(_inputFile, target, SelectedMachineId, _bomCheck.Checked, _extraBox.Text);
                 ShowRunResult(run, $"Отчёт сохранён: {target}");
+                if (run.ExitCode == 0)
+                    await ShowAnalysisAsync(input, await File.ReadAllTextAsync(target), run.Analysis);
             }
             else
             {
                 // Режим «Показать»: отчёт через временный файл, читаем как UTF-8
                 (RunResult run, string report) = await runner.AnalyzeToMemoryAsync(_inputFile, SelectedMachineId, _extraBox.Text);
                 ShowRunResult(run, "Готово");
-                if (run.ExitCode == 0) ShowReport(report);
+                if (run.ExitCode == 0) await ShowAnalysisAsync(input, report, run.Analysis);
             }
         }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        { ShowError($"Не удалось прочитать программу или отчёт: {e.Message}"); }
         finally
         {
             SetBusy(false);
@@ -288,10 +327,23 @@ public class MainForm : Form
         _errorBox.Text = ReportParser.NormalizeNewlines(run.StdErr.Trim());
     }
 
-    private void ShowReport(string report)
+    private async Task ShowAnalysisAsync(string input, string report, AnalysisData? analysis)
     {
-        string text = ReportParser.NormalizeNewlines(report);
-        _reportBox.Text = text;
+        if (analysis is null) { ShowError("CLI не вернул данные траектории."); return; }
+        string[] lines = await File.ReadAllLinesAsync(input);
+        var prepared = await Task.Run(() => (Scene: TrajectoryScene.Build(analysis.Segments),
+            Lines: LineClassifier.Classify(lines, analysis.Segments, analysis.Warnings),
+            Rtf: ReportHighlighter.ToRtf(report, analysis.Warnings)));
+        if (IsDisposed) return;
+        _workspace.SetAnalysis(prepared.Scene, prepared.Lines, analysis.Warnings);
+        ShowReport(prepared.Rtf);
+    }
+
+    private void ShowReport(string rtf)
+    {
+        _reportBox.Rtf = rtf;
+        // RichTextBox возвращает LF; позиции разделов считаем по фактическому Text.
+        string text = _reportBox.Text;
         _sections = ReportParser.ParseSections(text);
         _sectionList.Items.Clear();
         foreach (ReportSection s in _sections) _sectionList.Items.Add(s.Title);
@@ -330,6 +382,9 @@ public class MainForm : Form
 
     private void SaveSettings()
     {
+        _workspace.SaveLayout();
+        _settings.ActiveTab = _tabs.SelectedTab?.Name ?? "trajectory";
+        _settings.ReportSplitRatio = (double)_reportSplit.SplitterDistance / Math.Max(1, _reportSplit.Width);
         _settings.ExePath = _exeBox.Text.Trim();
         _settings.ExtraArguments = _extraBox.Text;
         _settings.SaveToFile = _saveRadio.Checked;

@@ -10,6 +10,14 @@ public class AppSettings
     public bool SaveToFile { get; set; }
     public bool Bom { get; set; }
     public string ExtraArguments { get; set; } = "";
+    public int ViewMode { get; set; }
+    public string ActiveTab { get; set; } = "trajectory";
+    public bool ReportFirst { get; set; }
+    public bool ProgramBelow { get; set; }
+    public double ProgramSplitRatio { get; set; } = .6;
+    public double WarningsSplitRatio { get; set; } = .78;
+    public double ViewsSplitRatio { get; set; } = .5;
+    public double ReportSplitRatio { get; set; } = .2;
 
     public static string DefaultPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GcodeAnalyzer", "settings.json");
