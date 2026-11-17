@@ -33,6 +33,12 @@ constexpr const char* kFeedLimit = "W019";
 constexpr const char* kSpindleLimit = "W020";
 constexpr const char* kAxisLimit = "W021";
 constexpr const char* kNoWcsOffset = "W022";
+constexpr const char* kMeasureAddress = "W023";
+constexpr const char* kMeasureFeedMode = "W024";
+constexpr const char* kMeasureDefect = "W025";
+constexpr const char* kMeasureEffects = "W026";
+constexpr const char* kApproximate = "W027";
+constexpr const char* kDialectHint = "W028";
 } // namespace warn
 
 enum class Severity { Error, Warning, Info };
@@ -40,7 +46,7 @@ struct WarningLevel {
     std::string_view code;
     Severity severity;
 };
-inline constexpr std::array<WarningLevel, 22> kWarningLevels{{
+inline constexpr std::array<WarningLevel, 28> kWarningLevels{{
     {warn::kNoWcs, Severity::Warning}, {warn::kWcsZero, Severity::Warning},
     {warn::kWcsChange, Severity::Warning}, {warn::kNoSpindle, Severity::Error},
     {warn::kNoFeed, Severity::Error}, {warn::kG43NoH, Severity::Warning},
@@ -51,7 +57,10 @@ inline constexpr std::array<WarningLevel, 22> kWarningLevels{{
     {warn::kNoMotionCode, Severity::Info}, {warn::kCycleIncomplete, Severity::Error},
     {warn::kChangeNoTool, Severity::Error}, {warn::kArc, Severity::Error},
     {warn::kFeedLimit, Severity::Error}, {warn::kSpindleLimit, Severity::Error},
-    {warn::kAxisLimit, Severity::Error}, {warn::kNoWcsOffset, Severity::Info}
+    {warn::kAxisLimit, Severity::Error}, {warn::kNoWcsOffset, Severity::Info},
+    {warn::kMeasureAddress, Severity::Error}, {warn::kMeasureFeedMode, Severity::Error},
+    {warn::kMeasureDefect, Severity::Warning}, {warn::kMeasureEffects, Severity::Info},
+    {warn::kApproximate, Severity::Info}, {warn::kDialectHint, Severity::Info}
 }};
 [[nodiscard]] constexpr Severity warningSeverity(std::string_view code) {
     for (const auto& level : kWarningLevels) if (level.code == code) return level.severity;

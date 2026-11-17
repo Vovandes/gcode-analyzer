@@ -874,7 +874,7 @@ void FormatAnalyzer::buildComments(Report& report) {
     sec.title = "4. Комментарии";
     Lines& L = sec.lines;
 
-    std::size_t total = 0, paren = 0, semi = 0, ownLine = 0, inBlock = 0;
+    std::size_t total = 0, paren = 0, semi = 0, at = 0, ownLine = 0, inBlock = 0;
     std::size_t padded = 0, tight = 0;
     std::size_t upperLetters = 0, lowerLetters = 0, nonAscii = 0, maxLen = 0;
     std::set<char> special;
@@ -883,7 +883,7 @@ void FormatAnalyzer::buildComments(Report& report) {
     for (const auto& r : recs_) {
         for (const auto& c : r.block.comments) {
             ++total;
-            if (c.style == '(') ++paren; else ++semi;
+            if (c.style == '(') ++paren; else if (c.style == '@') ++at; else ++semi;
             if (r.block.words.empty() && r.block.comments.size() == 1) ++ownLine; else ++inBlock;
             if (c.style == '(') {
                 const bool lead = !c.text.empty() && c.text.front() == ' ';
@@ -926,6 +926,7 @@ void FormatAnalyzer::buildComments(Report& report) {
         return;
     }
     L.push_back("Всего комментариев: " + count(total) + " (в скобках `( )`: " + count(paren) + ", после `;`: " + count(semi) + ").");
+    if (at > 0) L.push_back("Комментарии `@` / `@(…)` до конца строки: " + count(at) + ".");
     L.push_back("Отдельной строкой: " + count(ownLine) + ", в одном кадре со словами: " + count(inBlock) + ".");
     if (paren > 0) {
         L.push_back("Пробелы внутри скобок: `( текст )` - " + count(padded) + ", `(текст)` - " + count(tight) +

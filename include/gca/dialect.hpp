@@ -9,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "gca/lexer.hpp"
 
 namespace gca {
 
@@ -38,6 +39,8 @@ enum class GClass {
     Cycle, CycleCancel, ReturnInitial, ReturnR,
     DataSetting,    ///< G10: axis words are data, not motion
     MacroCall,      ///< G65
+    Transform, TransformCancel, RotaryAlign, RtcpOn, RtcpOff,
+    TurningOn, TurningOff, SpindleLimit, SurfaceSpeed, FixedSpeed, UnsupportedFeed, UnmodeledMotion,
     Other
 };
 
@@ -50,7 +53,7 @@ enum class MClass {
     ToolChange, ProgramStop, OptionalStop, ProgramEnd,
     SpindleCw, SpindleCcw, SpindleStop, SpindleOrient,
     CoolantOn, CoolantOff, CoolantExtra,
-    SubCall, SubReturn, Other
+    SubCall, SubReturn, TurningCancel, Other
 };
 
 /// Machine-specific overlay (codes whose meaning depends on the machine, not on the controller).
@@ -66,8 +69,9 @@ struct MachineProfile {
     std::vector<MCode> mCodes;
     struct Axis {
         std::optional<double> min, max, rapid, acceleration, home, home30;
+        std::optional<double> rapidAcceleration;
     };
-    std::array<Axis, 4> axes{};
+    std::array<Axis, 6> axes{};  ///< XYZB retained at their original indices, then A and C
     std::optional<double> feedMax, spindleMax;
     std::optional<double> toolChangeSec, bSecondsPer90, spindleStartSec, g28Time;
     double junctionAngle = 30.0;
@@ -75,9 +79,20 @@ struct MachineProfile {
     std::map<std::string, std::array<std::optional<double>, 3>> wcsOffsets;
     [[nodiscard]] bool hasMotionData() const {
         if (!wcsOffsets.empty()) return true;
-        for (const auto& a : axes) if (a.min || a.max || a.rapid || a.acceleration || a.home || a.home30) return true;
+        for (const auto& a : axes) if (a.min || a.max || a.rapid || a.acceleration || a.rapidAcceleration || a.home || a.home30) return true;
         return false;
     }
+};
+
+struct DefinitionInfo {
+    int number = 0;
+    std::string description;
+    std::vector<std::string> required;
+    std::vector<std::string> positive;
+    bool measuring = false, requiresG94 = false, homeZ = false;
+    std::string wcsAddress;       ///< AN / W; the caller's WCS is not restored
+    bool writesWcs = false;
+    std::string defect;
 };
 
 class IDialect {
@@ -96,16 +111,24 @@ public:
     [[nodiscard]] virtual int axisIndex(char letter) const = 0;
     [[nodiscard]] virtual bool isLinearAxis(int index) const = 0;
     [[nodiscard]] virtual bool isKnownAddress(char letter) const = 0;
+    [[nodiscard]] virtual LexRules lexicalRules() const { return {}; }
+    [[nodiscard]] virtual std::optional<DefinitionInfo> definition(int) const { return std::nullopt; }
+    [[nodiscard]] virtual bool uncertainHomeIntermediate() const { return false; }
+    [[nodiscard]] virtual bool feedDwellSeconds() const { return false; }
+    [[nodiscard]] virtual std::string_view machineHeaderKey() const { return "generated for"; }
+    [[nodiscard]] virtual bool requiresMinuteFeed(std::string_view) const { return false; }
 
     [[nodiscard]] virtual const std::vector<MachineProfile>& machines() const = 0;
 };
 
-constexpr int kAxisCount = 4;   // X Y Z B
+constexpr int kAxisCount = 6;   // X Y Z B A C (the first four indices are stable)
 constexpr int kAxisX = 0;
 constexpr int kAxisY = 1;
 constexpr int kAxisZ = 2;
 constexpr int kAxisB = 3;
-constexpr char kAxisLetters[kAxisCount + 1] = "XYZB";
+constexpr int kAxisA = 4;
+constexpr int kAxisC = 5;
+constexpr char kAxisLetters[kAxisCount + 1] = "XYZBAC";
 
 /// Dialect + optional machine overlay: the object the rest of the code works with.
 class Profile {
@@ -128,6 +151,8 @@ private:
 
 /// Find a dialect by id ("fanuc-mill"); nullptr if unknown.
 [[nodiscard]] const IDialect* findDialect(std::string_view id);
+[[nodiscard]] const IDialect& gnc62Dialect();
+[[nodiscard]] const IDialect* detectDialect(std::string_view text);
 [[nodiscard]] std::vector<std::string> dialectIds();
 /// Machine overlay by id ("skymaster-vl1100a"); nullptr if the dialect has no such machine.
 [[nodiscard]] const MachineProfile* findMachine(const IDialect& dialect, std::string_view id);

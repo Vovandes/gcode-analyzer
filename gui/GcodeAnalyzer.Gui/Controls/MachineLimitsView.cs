@@ -39,6 +39,7 @@ public sealed class MachineLimitsView : UserControl
     {
         _checks = checks;
         _table.RowCount = checks.Length;
+        _table.Visible = checks.Length > 0;
         _table.Invalidate();
         _summary.Text = checks.Length == 0 ? "Пределы не заданы или нет данных для проверки" :
             $"Проверок: {checks.Length}; нарушений: {checks.Count(c => c.Status == "error")}";

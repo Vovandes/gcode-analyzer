@@ -21,7 +21,7 @@ struct OutputOptions {
 
 /// Analysis settings.
 struct AnalysisOptions {
-    std::string dialect = "fanuc-mill"; ///< dialect/profile id
+    std::string dialect = "auto"; ///< header detection, falling back to fanuc-mill
     double rapidFeedMmPerMin = 10000.0; ///< G0 rate for time estimate
     std::string machine = "auto";       ///< machine profile id, "auto" = detect by "Generated for ..."
     std::filesystem::path machinesDirectory;

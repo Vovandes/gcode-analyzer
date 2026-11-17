@@ -50,8 +50,9 @@ void ToolsAnalyzer::onBlock(const BlockContext& ctx) {
             pendingTool_ = -1;
         }
     }
+    if (ctx.effect.dataBlock || ctx.block.control) return;
     for (const auto& w : ctx.block.words) {
-        if (!w.hasValue) continue;
+        if (!w.hasValue || !w.address.empty()) continue;
         // H0 / D0 mean "cancel", not a tool link
         if (w.letter == 'H' && w.value > 0.5) h_[ctx.after.activeTool].insert(static_cast<int>(std::lround(w.value)));
         else if (w.letter == 'D' && w.value > 0.5) d_[ctx.after.activeTool].insert(static_cast<int>(std::lround(w.value)));
@@ -96,6 +97,11 @@ void ToolsAnalyzer::finish(Report& report) {
         ++t.changes;
     }
     for (auto& t : report.tools) {
+        if (const auto name = report.toolNames.find(t.tool); name != report.toolNames.end()) {
+            t.name = name->second;
+            for (const auto& entry : report.headerTools)
+                if (entry.find(t.name) != std::string::npos) addUnique(t.descriptions, entry);
+        }
         if (const auto it = listDescriptions_.find(t.tool); it != listDescriptions_.end()) {
             for (const auto& s : it->second) addUnique(t.descriptions, s);
         }

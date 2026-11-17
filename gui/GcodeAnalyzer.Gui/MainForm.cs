@@ -352,7 +352,7 @@ public class MainForm : Form
         if (analysis is null) { ShowError("CLI не вернул данные траектории."); return; }
         string[] lines = await File.ReadAllLinesAsync(input);
         var prepared = await Task.Run(() => (Scene: TrajectoryScene.Build(analysis.Segments),
-            Lines: LineClassifier.Classify(lines, analysis.Segments, analysis.Warnings),
+            Lines: LineClassifier.Classify(lines, analysis.Segments, analysis.Warnings, analysis.File.Dialect),
             Rtf: ReportHighlighter.ToRtf(report, analysis.Warnings)));
         if (IsDisposed) return;
         _workspace.SetAnalysis(prepared.Scene, prepared.Lines, analysis.Warnings);

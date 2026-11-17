@@ -80,8 +80,8 @@ MachineProfile parseMachineIni(std::string_view text, std::string id, const Mach
                 if (key == "name") { profile.name = value.empty() ? profile.id : value; found = true; }
                 if (key == "match") { profile.match = value; found = true; }
             } else if (section == "axes") {
-                for (std::size_t a = 0; a < 4; ++a) {
-                    const std::string prefix(1, "xyzb"[a]);
+                for (std::size_t a = 0; a < kAxisCount; ++a) {
+                    const std::string prefix(1, "xyzbac"[a]);
                     if (key == prefix + "_min") { profile.axes[a].min = numeric(value); found = true; }
                     if (key == prefix + "_max") { profile.axes[a].max = numeric(value); found = true; }
                     if (key == prefix + "_home") { profile.axes[a].home = numeric(value); found = true; }
@@ -96,10 +96,11 @@ MachineProfile parseMachineIni(std::string_view text, std::string id, const Mach
                 if (key == "feed_max") { profile.feedMax = numeric(value, true); found = true; }
                 if (key == "spindle_max") { profile.spindleMax = numeric(value, true); found = true; }
             } else if (section == "time") {
-                for (std::size_t a = 0; a < 3; ++a) {
-                    const std::string suffix(1, "xyz"[a]);
+                for (std::size_t a = 0; a < kAxisCount; ++a) {
+                    const std::string suffix(1, "xyzbac"[a]);
                     if (key == "rapid_" + suffix) { profile.axes[a].rapid = numeric(value, true); found = true; }
                     if (key == "accel_" + suffix) { profile.axes[a].acceleration = numeric(value, true); found = true; }
+                    if (key == "rapid_accel_" + suffix) { profile.axes[a].rapidAcceleration = numeric(value, true); found = true; }
                 }
                 const std::pair<std::string_view, std::optional<double>*> times[] = {
                     {"tool_change", &profile.toolChangeSec}, {"b_seconds_per_90", &profile.bSecondsPer90},
@@ -134,7 +135,7 @@ MachineProfile parseMachineIni(std::string_view text, std::string id, const Mach
                         {"tool_change", MClass::ToolChange}, {"program_stop", MClass::ProgramStop}, {"optional_stop", MClass::OptionalStop},
                         {"program_end", MClass::ProgramEnd}, {"spindle_cw", MClass::SpindleCw}, {"spindle_ccw", MClass::SpindleCcw},
                         {"spindle_stop", MClass::SpindleStop}, {"spindle_orient", MClass::SpindleOrient},
-                        {"sub_call", MClass::SubCall}, {"sub_return", MClass::SubReturn}, {"other", MClass::Other}};
+                        {"sub_call", MClass::SubCall}, {"sub_return", MClass::SubReturn}, {"turning_cancel", MClass::TurningCancel}, {"other", MClass::Other}};
                     const auto c = classes.find(cls);
                     if (c == classes.end()) throw OptionError("неизвестный класс M-кода: " + cls);
                     MachineProfile::MCode mc{m, c->second, trim(std::string_view(value).substr(bar + 1))};
@@ -146,10 +147,10 @@ MachineProfile parseMachineIni(std::string_view text, std::string id, const Mach
             if (!found) throw OptionError("неизвестный ключ: " + key);
         } catch (const OptionError& e) { throw OptionError("строка " + std::to_string(lineNo) + ": " + e.what()); }
     }
-    for (std::size_t a = 0; a < 4; ++a) {
+    for (std::size_t a = 0; a < kAxisCount; ++a) {
         const auto& axis = profile.axes[a];
         if (axis.min && axis.max && *axis.min > *axis.max) {
-            const std::string prefix = "axes." + std::string(1, "xyzb"[a]);
+            const std::string prefix = "axes." + std::string(1, "xyzbac"[a]);
             const auto n = std::max(lines[prefix + "_min"], lines[prefix + "_max"]);
             throw OptionError("строка " + std::to_string(n) + ": минимум оси больше максимума");
         }

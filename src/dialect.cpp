@@ -220,7 +220,7 @@ public:
     }
 
     int axisIndex(char letter) const override {
-        for (int i = 0; i < kAxisCount; ++i) {
+        for (int i = 0; i < 4; ++i) {
             if (kAxisLetters[i] == letter) return i;
         }
         return -1;
@@ -256,10 +256,11 @@ std::string squash(std::string_view s) {
 
 const IDialect* findDialect(std::string_view id) {
     if (id == fanucMill().id()) return &fanucMill();
+    if (id == "gnc62") return &gnc62Dialect();
     return nullptr;
 }
 
-std::vector<std::string> dialectIds() { return {std::string(fanucMill().id())}; }
+std::vector<std::string> dialectIds() { return {std::string(fanucMill().id()), "gnc62"}; }
 
 const MachineProfile* findMachine(const IDialect& dialect, std::string_view id) {
     for (const auto& m : dialect.machines()) {

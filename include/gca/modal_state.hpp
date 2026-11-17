@@ -16,7 +16,7 @@ namespace gca {
 
 enum class Plane { XY, ZX, YZ };
 enum class DistanceMode { Absolute, Incremental };
-enum class FeedMode { PerMinute, PerRev };
+enum class FeedMode { PerMinute, PerRev, Unsupported };
 enum class CompMode { Off, Left, Right };
 enum class SpindleDir { Off, Cw, Ccw };
 
@@ -35,6 +35,7 @@ struct CycleParams {
 struct ModalState {
     // motion group: Rapid / Linear / ArcCw / ArcCcw (hasMotion == false until first G0..G3)
     bool hasMotion = false;
+    bool unmodeledMotion = false;
     GClass motion = GClass::Rapid;
     std::string cycleCode;                  ///< active canned cycle ("G81") or empty
     CycleParams cycle;
@@ -62,6 +63,11 @@ struct ModalState {
     double s = 0.0;
     bool hasF = false;
     double f = 0.0;
+    bool turning = false, transformed = false, rtcp = false, machineWcs = false, offsetsUnknown = false;
+    std::size_t coordinateEpoch = 0;
+    int spindleChannel = 0;
+    struct SpindleState { bool hasS = false, css = false; double s = 0; SpindleDir direction = SpindleDir::Off; };
+    std::map<int, SpindleState> spindles;
     std::set<std::string> coolant;          ///< active coolant M codes ("M8", "M15")
 
     Position pos;
@@ -104,7 +110,13 @@ struct Segment {
     double dwellSeconds = 0.0;
     bool limitViolation = false;
     bool machineCoordinates = false;
+    bool approximate = false;             ///< local/RTCP or turning geometry is only nominal
+    bool surfaceSpeed = false;            ///< S is m/min, not RPM; feed per rev cannot be derived
+    bool offsetsUnknown = false;
+    std::size_t coordinateEpoch = 0;
+    int spindleChannel = 0;
     std::string homeCode;
+    bool homePathUnknown = false;
     Position intermediate;
     std::optional<Position> workFrom, workTo; ///< G53 projected into the active WCS, when its offsets are known
 
@@ -137,6 +149,14 @@ struct BlockEffect {
     std::vector<ToolEvent> toolEvents;
     bool moveWithoutMotionCode = false;     ///< axis words while no G0..G3 was ever given
     bool cycleIncomplete = false;           ///< cycle executed without Z or R
+    bool dataBlock = false;
+    bool unmodeledMotion = false;
+    struct DefinitionCall {
+        int number = 0;
+        std::map<std::string, Word> parameters;
+        bool complete = false;
+    };
+    std::optional<DefinitionCall> definitionCall;
 };
 
 class ModalMachine {
@@ -154,6 +174,8 @@ private:
 
     Profile profile_;
     ModalState state_;
+    std::optional<BlockEffect::DefinitionCall> definition_;
+    bool collectingDefinition_ = false;
 };
 
 } // namespace gca

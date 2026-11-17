@@ -42,13 +42,13 @@ std::string lower(std::string s) {
 }
 
 /// Text after "Generated for" in a header comment ("=== Generated for Sky Master VL1100A ===").
-std::string findMachineName(const Program& program) {
+std::string findMachineName(const Program& program, std::string_view headerKey) {
     for (const auto& b : program.blocks) {
         for (const auto& c : b.comments) {
             const std::string l = lower(c.text);
-            const std::size_t p = l.find("generated for");
+            const std::size_t p = l.find(headerKey);
             if (p == std::string::npos) continue;
-            std::string name = c.text.substr(p + std::string("generated for").size());
+            std::string name = c.text.substr(p + headerKey.size());
             const auto bad = [](char ch) { return ch == '=' || ch == ' ' || ch == '\t'; };
             while (!name.empty() && bad(name.front())) name.erase(name.begin());
             while (!name.empty() && bad(name.back())) name.pop_back();
@@ -64,8 +64,18 @@ std::string findMachineName(const Program& program) {
 } // namespace
 
 Report analyzeProgram(const Program& program, const std::string& fileName, const AnalysisOptions& options) {
-    const IDialect* dialect = findDialect(options.dialect);
+    std::string source;
+    if (options.dialect == "auto") for (const auto& b : program.blocks) source += b.raw + '\n';
+    const IDialect* dialect = options.dialect == "auto" ? detectDialect(source) : findDialect(options.dialect);
+    if (!dialect && options.dialect == "auto") dialect = findDialect("fanuc-mill");
     if (dialect == nullptr) throw OptionError("unknown dialect: " + options.dialect);
+    if (program.rules.extended != dialect->lexicalRules().extended) {
+        if (source.empty()) for (const auto& b : program.blocks) source += b.raw + '\n';
+        auto reparsed = parseProgram(source, dialect->lexicalRules());
+        reparsed.crlfLines = program.crlfLines; reparsed.lfLines = program.lfLines; reparsed.noEolLines = program.noEolLines;
+        auto selected = options; selected.dialect = std::string(dialect->id());
+        return analyzeProgram(reparsed, fileName, selected);
+    }
     if (!(options.rapidFeedMmPerMin > 0.0)) throw OptionError("rapid feed must be positive");
 
     Report report;
@@ -84,7 +94,21 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
         report.diagnostics.push_back("строка " + std::to_string(d.lineNo) + ": " + d.message);
     }
 
-    report.file.machineName = findMachineName(program);
+    report.file.machineName = findMachineName(program, dialect->machineHeaderKey());
+    report.toolNames = program.toolNames;
+    if (dialect->lexicalRules().extended) {
+        std::vector<std::string>* list = nullptr;
+        for (const auto& b : program.blocks) for (const auto& c : b.comments) {
+            const auto first = c.text.find_first_not_of(" \t");
+            auto text = first == std::string::npos ? std::string{} : c.text.substr(first);
+            while (!text.empty() && (text.back() == ' ' || text.back() == '\t')) text.pop_back();
+            const auto key = lower(text);
+            if (key == "tools list") list = &report.headerTools;
+            else if (key == "operations list") list = &report.headerOperations;
+            else if (key == "end tools list" || key == "end operations list") list = nullptr;
+            else if (list && !text.empty()) list->push_back(text);
+        }
+    }
     const MachineProfile* machine = nullptr;
     auto machines = loadMachines(*dialect, options.machinesDirectory);
     std::optional<MachineProfile> explicitMachine;
@@ -148,7 +172,8 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
 }
 
 Report analyzeText(std::string_view text, const std::string& fileName, const AnalysisOptions& options) {
-    const Program program = parseProgram(text);
+    const IDialect* dialect = options.dialect == "auto" ? detectDialect(text) : findDialect(options.dialect);
+    const Program program = parseProgram(text, dialect ? dialect->lexicalRules() : LexRules{});
     return analyzeProgram(program, fileName, options);
 }
 

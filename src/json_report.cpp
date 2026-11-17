@@ -54,7 +54,8 @@ void range(std::ostream& out, const Range& r) {
 }
 void box(std::ostream& out, const BBox& b) {
     out << '[';
-    for (std::size_t a = 0; a < b.axis.size(); ++a) {
+    const std::size_t count = b.axis[kAxisA].has || b.axis[kAxisC].has ? b.axis.size() : 4;
+    for (std::size_t a = 0; a < count; ++a) {
         if (a != 0) out << ',';
         range(out, b.axis[a]);
     }
@@ -129,6 +130,13 @@ void segment(std::ostream& out, const Segment& s, double rapid) {
     out << ",\"spindle\":"; optional(out, s.hasS ? std::optional<double>(s.s) : std::nullopt);
     out << ",\"b\":";
     optional(out, s.to.known[kAxisB] ? std::optional<double>(s.to.v[kAxisB]) : std::nullopt);
+    if (s.to.known[kAxisA] || s.to.known[kAxisC] || s.axes[kAxisA] || s.axes[kAxisC]) {
+        out << ",\"a\":"; optional(out, s.to.known[kAxisA] ? std::optional<double>(s.to.v[kAxisA]) : std::nullopt);
+        out << ",\"c\":"; optional(out, s.to.known[kAxisC] ? std::optional<double>(s.to.v[kAxisC]) : std::nullopt);
+    }
+    if (s.approximate) out << ",\"approximate\":true";
+    if (s.surfaceSpeed) out << ",\"surfaceSpeed\":true";
+    if (s.spindleChannel) out << ",\"spindleChannel\":" << s.spindleChannel;
     if (s.kind == SegmentKind::Dwell) { out << ",\"dwellSec\":"; number(out, s.dwellSeconds); }
     if (s.kind == SegmentKind::CycleHole) {
         out << ",\"cycle\":{\"code\":"; string(out, s.cycle.code);
@@ -153,6 +161,7 @@ void tool(std::ostream& out, const ToolReport& t) {
     const auto text = [](std::ostream& o, const std::string& v) { string(o, v); };
     const auto integer = [](std::ostream& o, auto v) { o << v; };
     out << "{\"tool\":" << t.tool << ",\"descriptions\":"; array(out, t.descriptions, text);
+    if (!t.name.empty()) { out << ",\"name\":"; string(out,t.name); }
     out << ",\"changes\":" << t.changes << ",\"changeLines\":"; array(out, t.changeLines, integer);
     out << ",\"hValues\":"; array(out, t.hValues, integer);
     out << ",\"dValues\":"; array(out, t.dValues, integer);
@@ -198,6 +207,11 @@ void writeJsonReport(const Report& report, std::ostream& output) {
         o << ",\"text\":"; string(o, w.text); o << '}';
     });
     out << ",\n  \"tools\":"; array(out, report.tools, tool);
+    if (!report.headerTools.empty() || !report.headerOperations.empty()) {
+        const auto text = [](std::ostream& o, const std::string& v) { string(o,v); };
+        out << ",\n  \"header\":{\"tools\":"; array(out,report.headerTools,text);
+        out << ",\"operations\":"; array(out,report.headerOperations,text); out << '}';
+    }
     out << ",\n  \"time\":"; time(out, report.time);
     out << ",\n  \"limits\":";
     array(out, report.limits, [](std::ostream& o, const Report::LimitCheck& c) {

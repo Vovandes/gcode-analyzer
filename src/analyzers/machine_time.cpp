@@ -23,21 +23,25 @@ double axisTime(double length, std::size_t axis, const MachineProfile& p, double
     const auto& a = p.axes[axis];
     const double rate = feed ? fallback : a.rapid.value_or(fallback);
     if (length <= 1e-12) return 0;
-    if (a.acceleration) result.accelerations = true;
+    const auto acceleration = feed ? a.acceleration : a.rapidAcceleration ? a.rapidAcceleration : a.acceleration;
+    if (acceleration) result.accelerations = true;
     else note(result, "оценка без ускорений: для части перемещений ускорение не задано");
-    return acceleratedSeconds(length, rate / 60, a.acceleration.value_or(0));
+    return acceleratedSeconds(length, rate / 60, acceleration.value_or(0));
 }
 double rapidTime(const Position& from, const Position& to, const MachineProfile& p, double rapid, Report::MachineTime& t) {
     bool custom = false;
     double maximum = 0, sum = 0;
-    for (std::size_t a = 0; a < 3; ++a) {
+    for (std::size_t a = 0; a < kAxisCount; ++a) {
+        if (a == kAxisB) continue; // Legacy B time is a separate profile constant.
         if (!from.known[a] || !to.known[a]) {
             if (from.known[a] != to.known[a]) note(t, "Неполная оценка: неизвестна начальная или конечная координата");
             continue;
         }
         const double d = std::fabs(to.v[a] - from.v[a]);
         if (d < 1e-12) continue;
-        custom = custom || p.axes[a].rapid.has_value() || p.axes[a].acceleration.has_value();
+        custom = custom || p.axes[a].rapid.has_value() || p.axes[a].acceleration.has_value() || p.axes[a].rapidAcceleration.has_value();
+        if (a >= 3 && !p.axes[a].rapid) { note(t, "Скорость поворотной оси не задана: её время не учтено"); continue; }
+        if (a >= 3) custom = true;
         sum += d * d;
         maximum = std::max(maximum, axisTime(d, a, p, rapid, t));
     }
@@ -95,7 +99,7 @@ double cycleTime(const Segment& s, const MachineProfile& p, double rapid, Report
     const auto& c = s.cycle;
     const auto original = measureSegment(s, rapid);
     const auto rate = feedMmPerMin(s);
-    if (!p.axes[2].rapid && !p.axes[2].acceleration) return original.rapidSec + original.feedSec;
+    if (!p.axes[2].rapid && !p.axes[2].acceleration && !p.axes[2].rapidAcceleration) return original.rapidSec + original.feedSec;
     const auto feed = [&](double length) { return rate ? axisTime(length, 2, p, *rate, result, true) : 0.0; };
     const auto fast = [&](double length) { return axisTime(length, 2, p, rapid, result); };
     double t = c.zInitKnown ? fast(std::fabs(c.zInit - c.zR)) : 0;
@@ -119,7 +123,7 @@ double cycleTime(const Segment& s, const MachineProfile& p, double rapid, Report
 }
 }
 void MachineTimeAnalyzer::onBlock(const BlockContext& ctx) {
-    bool barrier = ctx.before.wcs != ctx.after.wcs;
+    bool barrier = ctx.before.wcs != ctx.after.wcs || ctx.effect.dataBlock || ctx.block.control;
     for (const auto& w : ctx.block.words) if (w.letter == 'M' && w.hasValue) {
         const auto cls = ctx.profile.m(static_cast<int>(w.value));
         if (cls && (*cls == MClass::ProgramStop || *cls == MClass::OptionalStop || *cls == MClass::ToolChange ||
@@ -133,9 +137,10 @@ void MachineTimeAnalyzer::onBlock(const BlockContext& ctx) {
     }
 }
 void MachineTimeAnalyzer::onSegment(const Segment& s, const BlockContext&) {
-    if (s.axes[3]) ++group_;
+    const bool rotary = s.axes[3] || s.axes[4] || s.axes[5];
+    if (rotary) ++group_;
     groups_.push_back(group_);
-    if (s.axes[3]) ++group_;
+    if (rotary) ++group_;
     if (s.kind != SegmentKind::Linear && s.kind != SegmentKind::Arc) ++group_;
 }
 void MachineTimeAnalyzer::onToolChange(const ToolEvent& event, const BlockContext&) {
@@ -185,12 +190,18 @@ void MachineTimeAnalyzer::finish(Report& report) {
         case SegmentKind::Dwell: result_.motion.dwellSec += original.dwellSec; break;
         case SegmentKind::Home: {
             bool known = true;
-            for (std::size_t a = 0; a < 4; ++a) if (s.axes[a]) known = known && s.from.known[a] && s.intermediate.known[a] && s.to.known[a];
+            for (std::size_t a = 0; a < kAxisCount; ++a) if (s.axes[a]) known = known && s.from.known[a] && s.intermediate.known[a] && s.to.known[a];
             if (known) result_.homeSec += rapidTime(s.from, s.intermediate, p, rapid_, result_) + rapidTime(s.intermediate, s.to, p, rapid_, result_);
             else if (p.g28Time) { result_.homeSec += *p.g28Time; fixedHome = true; }
             else note(result_, "G28/G30 не учтён: неизвестен путь и не задано g28_time");
             break;
         }
+        }
+        if (s.approximate) note(result_, "Номинальная геометрия: локальная СК, RTCP или точение; время является приближением");
+        if (s.surfaceSpeed) note(result_, "S в режиме постоянной скорости резания не является оборотами; G95 без известного RPM по времени не рассчитан");
+        if (s.axes[4] || s.axes[5]) {
+            if (s.kind != SegmentKind::Rapid && s.kind != SegmentKind::Home)
+                note(result_, "Рабочее движение A/C: время поворотных осей и синхронизация с XYZ не рассчитаны");
         }
         double bDistance = s.from.known[3] && s.to.known[3] ? std::fabs(s.to.v[3] - s.from.v[3]) : 0;
         if (s.kind == SegmentKind::Home && s.from.known[3] && s.intermediate.known[3] && s.to.known[3])
@@ -203,7 +214,10 @@ void MachineTimeAnalyzer::finish(Report& report) {
             note(result_, "Неполная оценка B: неизвестна начальная или конечная координата");
         if (original.partial) note(result_, "Неполная оценка: неизвестна начальная или конечная координата");
     }
-    if (!result_.accelerations) note(result_, "оценка без ускорений");
+    if (!result_.accelerations) {
+        const auto detailed = std::find(result_.notes.begin(), result_.notes.end(), "оценка без ускорений: для части перемещений ускорение не задано");
+        if (detailed == result_.notes.end()) note(result_, "оценка без ускорений");
+    }
     report.machineTime = result_;
 }
 } // namespace gca

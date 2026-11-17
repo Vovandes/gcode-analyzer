@@ -8,7 +8,7 @@ public sealed record ProgramLine(string Text, LineKind Kind, string? Severity, T
 
 public static class LineClassifier
 {
-    public static ProgramLine[] Classify(string[] lines, Segment[] segments, WarningItem[] warnings)
+    public static ProgramLine[] Classify(string[] lines, Segment[] segments, WarningItem[] warnings, string? dialect = null)
     {
         var kinds = segments.GroupBy(s => s.Line).ToDictionary(g => g.Key, g =>
             g.Any(s => s.Kind is "linear" or "arc" or "cycle") ? LineKind.Work :
@@ -16,16 +16,27 @@ public static class LineClassifier
         var levels = warnings.GroupBy(w => w.Line).ToDictionary(g => g.Key,
             g => g.MaxBy(w => SeverityStyle.Rank(w.Severity))!.Severity);
         return lines.Select((text, i) => new ProgramLine(text, kinds.GetValueOrDefault(i + 1),
-            levels.GetValueOrDefault(i + 1), SplitComments(text))).ToArray();
+            levels.GetValueOrDefault(i + 1), SplitComments(text, dialect == "gnc62"))).ToArray();
     }
 
-    public static TextSpan[] SplitComments(string text)
+    public static TextSpan[] SplitComments(string text, bool extended = false)
     {
         var spans = new List<TextSpan>();
         int start = 0, depth = 0;
         for (int i = 0; i < text.Length; i++)
         {
-            if (text[i] == ';' && depth == 0)
+            // Кавычки и S(n) не являются комментариями стойки GNC62.
+            if (extended && text[i] == '"' && depth == 0)
+            {
+                int end = text.IndexOf('"', i + 1);
+                if (end >= 0) { i = end; continue; }
+            }
+            if (extended && text[i] == '(' && depth == 0 && i > 0 && char.ToUpperInvariant(text[i - 1]) == 'S')
+            {
+                int end = text.IndexOf(')', i + 1);
+                if (end >= 0 && int.TryParse(text.AsSpan(i + 1, end - i - 1), out _)) { i = end; continue; }
+            }
+            if ((text[i] == ';' || (extended && text[i] == '@')) && depth == 0)
             {
                 if (i > start) spans.Add(new(start, i - start, false));
                 spans.Add(new(i, text.Length - i, true));

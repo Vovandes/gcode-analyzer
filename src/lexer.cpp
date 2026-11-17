@@ -2,6 +2,9 @@
 
 #include <array>
 #include <cstdint>
+#include <algorithm>
+#include <limits>
+#include <cmath>
 
 namespace gca {
 
@@ -20,7 +23,15 @@ void report(std::vector<Diagnostic>* d, std::size_t line, std::string msg) {
 
 const Word* Block::find(char letter) const {
     for (const auto& w : words) {
-        if (w.letter == letter) return &w;
+        if (w.letter == letter && w.address.empty()) return &w;
+    }
+    return nullptr;
+}
+
+const Word* Block::findAddress(std::string_view address) const {
+    for (const auto& w : words) {
+        if ((!w.address.empty() && w.address == address) ||
+            (w.address.empty() && address.size() == 1 && w.letter == address.front())) return &w;
     }
     return nullptr;
 }
@@ -59,11 +70,14 @@ std::optional<double> parseNumber(std::string_view s) {
         // extra fractional digits beyond precision are dropped
     }
     if (!anyDigit) return std::nullopt;
-    double v = static_cast<double>(mant) / kPow10[scale];
+    // Leading fractional zeros do not consume significant digits: scale can exceed 18.
+    // Keep the historical exact decimal path for ordinary NC coordinates.
+    double v = scale < kPow10.size() ? static_cast<double>(mant) / kPow10[scale] :
+        static_cast<double>(mant) * std::pow(10.0, -static_cast<double>(scale));
     return neg ? -v : v;
 }
 
-Block lexLine(std::string_view line, std::size_t lineNo, std::vector<Diagnostic>* diagnostics) {
+Block lexLine(std::string_view line, std::size_t lineNo, std::vector<Diagnostic>* diagnostics, LexRules rules) {
     Block b;
     b.lineNo = lineNo;
     b.raw = std::string(line);
@@ -92,6 +106,26 @@ Block lexLine(std::string_view line, std::size_t lineNo, std::vector<Diagnostic>
             badRun = false;
             ++i;
             continue;
+        }
+        if (rules.extended && c == '@') {
+            Comment cm;
+            cm.style = '@'; cm.pos = i; cm.raw = std::string(line.substr(i));
+            auto text = line.substr(i + 1);
+            if (text.starts_with('(') && text.ends_with(')')) text = text.substr(1, text.size() - 2);
+            cm.text = std::string(text); b.comments.push_back(std::move(cm));
+            break;
+        }
+        if (rules.extended && c == '"') {
+            const auto end = line.find('"', i + 1);
+            if (end == std::string_view::npos) { report(diagnostics, lineNo, "unterminated string"); break; }
+            // G211 "C" selects the turning spindle axis; it is not an axis word.
+            b.callName = std::string(line.substr(i + 1, end - i - 1));
+            i = end + 1; continue;
+        }
+        if (rules.extended && (c == '#' || c == '[')) {
+            b.control = true; b.command = "EXPRESSION";
+            const auto at = line.find('@', i);
+            i = at == std::string_view::npos ? n : at; continue;
         }
         if (c == '(') {
             int depth = 0;
@@ -143,22 +177,86 @@ Block lexLine(std::string_view line, std::size_t lineNo, std::vector<Diagnostic>
             continue;
         }
         if (isAlpha(c)) {
+            if (rules.extended) {
+                std::size_t end = i;
+                while (end < n && (isAlpha(line[end]) || line[end] == '_')) ++end;
+                std::string key(line.substr(i, end - i));
+                for (auto& ch : key) ch = toUpper(ch);
+                if (key == "GDEF") {
+                    std::size_t j = end; while (j < n && isDigit(line[j])) ++j;
+                    const auto code = parseNumber(line.substr(end, j - end));
+                    if (!code || *code > 99999) report(diagnostics, lineNo, "invalid GDEF number");
+                    else b.definition = static_cast<int>(*code);
+                    i = j; continue;
+                }
+                if (key == "END" || key == "GCALL") {
+                    if (key == "END") b.definitionEnd = true; else b.cycleCall = true;
+                    i = end; continue;
+                }
+                // A..Z and AA..AZ are the documented GDEF parameter addresses.
+                if (key.size() > 1 && !(key.size() == 2 && key.front() == 'A')) {
+                    b.control = true; b.command = key;
+                    const auto at = line.find('@', end);
+                    auto arg = line.substr(end, at == std::string_view::npos ? n - end : at - end);
+                    const auto first = arg.find_first_not_of(" \t");
+                    if (first != std::string_view::npos) arg.remove_prefix(first);
+                    if (key == "GOTO") {
+                        const auto value = parseNumber(arg.substr(0, arg.find_first_of(" \t")));
+                        if (value && *value >= 0 && *value <= std::numeric_limits<long>::max()) b.jumpTarget = static_cast<long>(*value);
+                    } else if (key == "CALL") {
+                        b.callName = std::string(arg.substr(0, arg.find_first_of(" \t")));
+                        if (b.callName.size() >= 2 && b.callName.front() == '"' && b.callName.back() == '"')
+                            b.callName = b.callName.substr(1, b.callName.size() - 2);
+                    }
+                    i = at == std::string_view::npos ? n : at; continue;
+                }
+            }
             Word w;
             w.letter = toUpper(c);
             w.lowercase = (c != w.letter);
             w.pos = i;
             w.precededBySpace = prevSpace;
-            std::size_t j = i + 1;
+            std::size_t valueStart = i + 1;
+            if (rules.extended && w.letter == 'A' && valueStart < n && isAlpha(line[valueStart])) {
+                w.address = "A"; w.address += toUpper(line[valueStart++]);
+            }
+            if (rules.extended && w.letter == 'T' && valueStart < n && line[valueStart] == '"') {
+                const auto end = line.find('"', valueStart + 1);
+                if (end == std::string_view::npos) { report(diagnostics, lineNo, "unterminated tool name"); break; }
+                w.stringValue = std::string(line.substr(valueStart + 1, end - valueStart - 1));
+                if (w.stringValue.empty()) report(diagnostics, lineNo, "empty tool name");
+                w.rawText = std::string(line.substr(i, end + 1 - i));
+                b.words.push_back(std::move(w)); i = end + 1; prevSpace = false; continue;
+            }
+            if (rules.extended && w.letter == 'S' && valueStart < n && line[valueStart] == '(') {
+                const auto close = line.find(')', valueStart + 1);
+                const auto channel = close == std::string_view::npos ? std::nullopt : parseNumber(line.substr(valueStart + 1, close - valueStart - 1));
+                if (!channel || *channel < 1 || *channel > 16) { report(diagnostics, lineNo, "invalid spindle selector"); break; }
+                w.channel = static_cast<int>(*channel); valueStart = close + 1;
+                while (valueStart < n && isSpace(line[valueStart])) ++valueStart;
+            }
+            std::size_t j = valueStart;
+            if (rules.extended && j < n && (line[j] == '#' || line[j] == '[')) {
+                w.expression = true;
+                int depth = 0;
+                do {
+                    if (line[j] == '[') ++depth;
+                    if (line[j] == ']') --depth;
+                    ++j;
+                } while (j < n && (depth > 0 || isDigit(line[j]) || line[j] == '#' || line[j] == '.'));
+                w.rawText = std::string(line.substr(i, j - i));
+                b.words.push_back(std::move(w)); i = j; continue;
+            }
             if (j < n && (line[j] == '+' || line[j] == '-')) ++j;
             while (j < n && (isDigit(line[j]) || line[j] == '.')) ++j;
             w.rawText = std::string(line.substr(i, j - i));
-            const auto num = parseNumber(line.substr(i + 1, j - i - 1));
+            const auto num = parseNumber(line.substr(valueStart, j - valueStart));
             if (num) {
                 w.value = *num;
                 w.hasValue = true;
-            } else if (j > i + 1) {
+            } else if (j > valueStart) {
                 report(diagnostics, lineNo, "bad number in word '" + w.rawText + "'");
-            } else if (w.letter != 'O') {
+            } else if (w.letter != 'O' && !(rules.extended && w.channel > 0)) {
                 report(diagnostics, lineNo, "address '" + w.rawText + "' without value");
             }
             if (w.letter == 'N' && w.hasValue && !b.n) b.n = static_cast<long>(w.value);
@@ -178,8 +276,9 @@ Block lexLine(std::string_view line, std::size_t lineNo, std::vector<Diagnostic>
     return b;
 }
 
-Program parseProgram(std::string_view text) {
+Program parseProgram(std::string_view text, LexRules rules) {
     Program p;
+    p.rules = rules;
     std::size_t start = 0;
     std::size_t lineNo = 0;
     while (start < text.size()) {
@@ -200,7 +299,24 @@ Program parseProgram(std::string_view text) {
             }
         }
         ++lineNo;
-        p.blocks.push_back(lexLine(line, lineNo, &p.diagnostics));
+        p.blocks.push_back(lexLine(line, lineNo, &p.diagnostics, rules));
+    }
+    if (rules.extended) {
+        // Allocate synthetic keys above every numeric T; preserve the original name in reports.
+        int next = 0;
+        for (const auto& b : p.blocks) for (const auto& w : b.words)
+            if (w.letter == 'T' && w.hasValue && w.value >= 0 && w.value < 1000000) next = std::max(next, static_cast<int>(w.value));
+        std::map<std::string, int> names;
+        for (auto& b : p.blocks) {
+            for (auto& w : b.words) if (!w.stringValue.empty()) {
+                const auto [it, inserted] = names.emplace(w.stringValue, next + 1);
+                if (inserted) { ++next; p.toolNames[next] = w.stringValue; }
+                w.hasValue = true; w.value = it->second;
+            }
+            int channel = 0;
+            for (const auto& w : b.words) if (w.letter == 'S' && w.channel > 0) channel = w.channel;
+            for (auto& w : b.words) if (w.letter == 'M') w.channel = channel;
+        }
     }
     return p;
 }

@@ -44,6 +44,7 @@ add_library(gca_core STATIC
     src/cli.cpp
     src/lexer.cpp
     src/dialect.cpp
+    src/gnc62.cpp
     src/knowledge.cpp
     src/modal_state.cpp
     src/motion.cpp

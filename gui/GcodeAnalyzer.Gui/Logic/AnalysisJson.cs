@@ -72,6 +72,11 @@ public sealed class Segment
     public required double? Feed { get; init; }
     public required double? Spindle { get; init; }
     public required double? B { get; init; }
+    public double? A { get; init; }
+    public double? C { get; init; }
+    public bool Approximate { get; init; }
+    public bool SurfaceSpeed { get; init; }
+    public int SpindleChannel { get; init; }
     public double? DwellSec { get; init; }
     public CycleInfo? Cycle { get; init; }
     public bool LimitViolation { get; init; }
@@ -150,6 +155,7 @@ public sealed class TimeInfo
 
 public sealed class ToolInfo
 {
+    public string? Name { get; init; }
     public required int Tool { get; init; }
     public string[] Descriptions { get; init; } = [];
     public int Changes { get; init; }

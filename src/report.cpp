@@ -57,7 +57,7 @@ void writeBox(std::ostream& out, const BBox& b, const std::string& indent) {
         const Range& r = b.axis[static_cast<std::size_t>(a)];
         if (!r.has) continue;
         out << indent << kAxisLetters[a] << ": " << num(r.min) << " .. " << num(r.max);
-        if (a != kAxisB) out << "  (размах " << num(r.max - r.min) << ')';
+        if (a < 3) out << "  (размах " << num(r.max - r.min) << ')';
         out << '\n';
     }
 }
@@ -109,6 +109,7 @@ void writeTextReport(const Report& r, std::ostream& out) {
     out << '\n';
     for (const auto& t : r.tools) {
         out << "  T" << t.tool << ": смен " << t.changes;
+        if (!t.name.empty()) out << ", имя T\"" << t.name << '"';
         if (!t.hValues.empty()) {
             out << ", H";
             for (const int h : t.hValues) out << ' ' << h;
@@ -119,6 +120,14 @@ void writeTextReport(const Report& r, std::ostream& out) {
         }
         out << '\n';
         for (const auto& d : t.descriptions) out << "      " << d << '\n';
+    }
+    if (!r.headerTools.empty()) {
+        out << "  Список инструментов из шапки:\n";
+        for (const auto& entry : r.headerTools) out << "      " << entry << '\n';
+    }
+    if (!r.headerOperations.empty()) {
+        out << "  Список операций из шапки:\n";
+        for (const auto& entry : r.headerOperations) out << "      " << entry << '\n';
     }
 
     heading(out, "Время обработки (оценка)");
@@ -149,7 +158,7 @@ void writeTextReport(const Report& r, std::ostream& out) {
 
     heading(out, "Пределы станка");
     if (r.limits.empty()) out << "  Проверки не выполнены: " << (r.hasMachineProfile ? "пределы в профиле не заданы или нет данных УП" : "нет профиля станка") << '\n';
-    out << "  Параметр | Значение в УП | Предел | Статус\n";
+    if (!r.limits.empty()) out << "  Параметр | Значение в УП | Предел | Статус\n";
     const auto optionalNum = [](std::optional<double> v) { return v ? num(*v) : "?"; };
     for (const auto& c : r.limits) {
         out << "  " << (c.status == "error" ? "[error] " : c.status == "info" ? "[info] " : "[ok] ")

@@ -5,6 +5,11 @@
 namespace gca {
 
 void CodeStatsAnalyzer::onBlock(const BlockContext& ctx) {
+    if (ctx.block.definition) {
+        auto& e = g_[canonicalCode('G', *ctx.block.definition)];
+        e.value = *ctx.block.definition;
+        if (e.count++ == 0) e.firstLine = ctx.block.lineNo;
+    }
     for (const auto& w : ctx.block.words) {
         if ((w.letter != 'G' && w.letter != 'M') || !w.hasValue) continue;
         auto& map = (w.letter == 'G') ? g_ : m_;

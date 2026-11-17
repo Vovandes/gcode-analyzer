@@ -131,7 +131,7 @@ int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
     if (wantVersion) return emit("gcode-analyzer " + version() + '\n', output.outFile, bom, "Версия записана", out, err);
     if (wantOptions) return emit(optionsListText(), output.outFile, bom, "Список опций записан", out, err);
 
-    const IDialect* dialect = findDialect(options.dialect);
+    const IDialect* dialect = findDialect(options.dialect == "auto" ? "fanuc-mill" : options.dialect);
     if (dialect == nullptr) {
         err << "Неизвестный диалект: " << options.dialect << " (доступно:";
         for (const auto& id : dialectIds()) err << ' ' << id;

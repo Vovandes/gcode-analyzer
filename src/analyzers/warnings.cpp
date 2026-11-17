@@ -45,9 +45,57 @@ void WarningsAnalyzer::emitOncePerOp(std::size_t line, const char* code, std::st
 void WarningsAnalyzer::onBlock(const BlockContext& ctx) {
     const Block& b = ctx.block;
     const IDialect& dialect = ctx.profile.dialect();
+    std::string upperRaw = b.raw;
+    for (auto& c : upperRaw) if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+
+    if (!dialect.lexicalRules().extended &&
+        (b.raw.find('@') != std::string::npos || upperRaw.find("GDEF") != std::string::npos || upperRaw.find("GCALL") != std::string::npos) &&
+        once_.insert(warn::kDialectHint).second)
+        emit(b.lineNo, warn::kDialectHint, "похоже на GNC62, используйте --dialect gnc62");
+    if (dialect.lexicalRules().extended) {
+        if ((ctx.effect.unmodeledMotion || ctx.after.feedMode == FeedMode::Unsupported) && once_.insert("unmodeled").second)
+            emit(b.lineNo, warn::kApproximate, "Документированный режим требует дополнительной модели; его внутренние перемещения или подача по времени не рассчитаны");
+        if (b.control || std::any_of(b.words.begin(), b.words.end(), [](const Word& w) { return w.expression; })) {
+            if (once_.insert("control").second)
+                emit(b.lineNo, warn::kApproximate, "Макросы, GOTO и подпрограммы не исполняются: анализ по порядку строк, время и траектория неполные");
+        }
+        if (dialect.requiresMinuteFeed(b.callName) && ctx.before.feedMode != FeedMode::PerMinute)
+            emit(b.lineNo, warn::kMeasureFeedMode, "prb_xyz требует G94 (подача в минуту)");
+        if ((ctx.after.transformed || ctx.after.rtcp || ctx.after.turning) && once_.insert("geometry").second)
+            emit(b.lineNo, warn::kApproximate, "Локальная СК, RTCP и токарная геометрия показаны номинально; преобразование и диаметр X не рассчитаны, абсолютные пределы XYZ не проверяются");
+        if (ctx.effect.definitionCall) {
+            const auto& call = *ctx.effect.definitionCall;
+            const auto d = dialect.definition(call.number);
+            if (!call.complete) emit(b.lineNo, warn::kMeasureAddress, "GCALL без завершённого GDEF ... END");
+            if (!d) emit(b.lineNo, warn::kUnknownCode, "неизвестный цикл GDEF" + std::to_string(call.number));
+            else {
+                for (const auto& address : d->required) {
+                    const auto p = call.parameters.find(address);
+                    if (p == call.parameters.end() || (!p->second.hasValue && !p->second.expression))
+                        emit(b.lineNo, warn::kMeasureAddress, "GDEF" + std::to_string(call.number) + ": не задан обязательный адрес " + address);
+                }
+                for (const auto& address : d->positive) {
+                    const auto p = call.parameters.find(address);
+                    if (p != call.parameters.end() && p->second.hasValue && p->second.value <= 0)
+                        emit(b.lineNo, warn::kMeasureAddress, "GDEF" + std::to_string(call.number) + ": адрес " + address + " должен быть положительным");
+                }
+                if (d->requiresG94 && ctx.before.feedMode != FeedMode::PerMinute)
+                    emit(b.lineNo, warn::kMeasureFeedMode, "GDEF" + std::to_string(call.number) + ": подпрограмма касания prb_xyz требует G94");
+                if (!d->defect.empty()) emit(b.lineNo, warn::kMeasureDefect, "GDEF" + std::to_string(call.number) + ": " + d->defect + "; проверить установленную версию цикла");
+                if (d->measuring) {
+                    std::string effects = "GDEF" + std::to_string(call.number) + ": внутренние ходы и время измерения не рассчитаны; конечная позиция неизвестна";
+                    if (!d->wcsAddress.empty()) effects += "; СК из " + d->wcsAddress + " не восстанавливается (после: " + (ctx.after.wcs.empty() ? "неизвестна" : ctx.after.wcs) + ")";
+                    if (d->homeZ) effects += "; цикл выполняет G28 Z0";
+                    if (d->writesWcs) effects += "; записывает смещения СК, прежние смещения больше не используются";
+                    emit(b.lineNo, warn::kMeasureEffects, effects);
+                } else emit(b.lineNo, warn::kApproximate, "GDEF" + std::to_string(call.number) + ": внутренние движения подпрограммы не рассчитаны");
+            }
+        }
+    }
 
     for (const auto& w : b.words) {
-        if (!w.hasValue) continue;
+        if (!w.hasValue || !w.address.empty()) continue;
+        if (ctx.effect.dataBlock && w.letter != 'G' && w.letter != 'M') continue;
         if (w.letter == 'G') {
             const auto info = ctx.profile.g(w.value);
             const std::string key = canonicalCode('G', w.value);
@@ -125,10 +173,12 @@ void WarningsAnalyzer::onBlock(const BlockContext& ctx) {
 }
 
 void WarningsAnalyzer::onSegment(const Segment& seg, const BlockContext& ctx) {
+    if (seg.homePathUnknown && once_.insert("homePath").second)
+        emit(seg.lineNo, warn::kApproximate, "G28 GNC62: трактовка промежуточной точки требует проверки на станке; путь и время возврата не рассчитаны");
     if (seg.kind == SegmentKind::Home || seg.kind == SegmentKind::Dwell) return;
     const std::size_t line = seg.lineNo;
 
-    if (seg.wcs.empty() && once_.insert(warn::kNoWcs).second) {
+    if (seg.wcs.empty() && !seg.machineCoordinates && once_.insert(warn::kNoWcs).second) {
         emit(line, warn::kNoWcs, "перемещение до назначения рабочей СК (G54..G59 / G54.1)");
     }
     opHasMotion_ = true;
@@ -149,7 +199,7 @@ void WarningsAnalyzer::onSegment(const Segment& seg, const BlockContext& ctx) {
     if (seg.kind == SegmentKind::Linear || seg.kind == SegmentKind::Arc || seg.kind == SegmentKind::CycleHole) {
         if (seg.spindle == SpindleDir::Off) {
             emitOncePerOp(line, warn::kNoSpindle, "рабочий ход при невключённом шпинделе (нет M3/M4)");
-        } else if (!seg.hasS || !(seg.s > 0.0)) {
+        } else if (!seg.surfaceSpeed && (!seg.hasS || !(seg.s > 0.0))) {
             emitOncePerOp(line, warn::kNoSpindle, "рабочий ход без заданных оборотов S");
         }
         if (!seg.hasF || !(seg.feed > 0.0)) {

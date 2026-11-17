@@ -10,12 +10,17 @@ FeedsSpeedsAnalyzer::Acc& FeedsSpeedsAnalyzer::acc(int tool) {
 }
 
 void FeedsSpeedsAnalyzer::onBlock(const BlockContext& ctx) {
+    if (ctx.effect.dataBlock || ctx.block.control) return;
     for (const auto& w : ctx.block.words) {
-        if (!w.hasValue) continue;
+        if (!w.hasValue || !w.address.empty()) continue;
+        if (w.letter == 'F' && ctx.profile.dialect().feedDwellSeconds() && !ctx.effect.segments.empty() && ctx.effect.segments.front().kind == SegmentKind::Dwell) continue;
         if (w.letter == 'F') {
+            if (ctx.after.feedMode == FeedMode::Unsupported) continue;
             Acc& a = acc(ctx.after.activeTool);
             (ctx.after.feedMode == FeedMode::PerRev ? a.feedPerRev : a.feedPerMin).add(w.value);
         } else if (w.letter == 'S') {
+            const auto spindle = ctx.after.spindles.find(w.channel > 0 ? w.channel : ctx.after.spindleChannel);
+            if (spindle != ctx.after.spindles.end() && spindle->second.css) continue;
             Acc& a = acc(ctx.after.activeTool);
             a.spindle.add(w.value);
             if (std::fabs(w.value - std::round(w.value)) > 1e-9) a.fractionalS = true;

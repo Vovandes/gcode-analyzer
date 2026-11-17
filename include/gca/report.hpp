@@ -58,6 +58,7 @@ struct ToolUse {
 
 struct ToolReport {
     int tool = 0;
+    std::string name;              ///< quoted controller tool name; numeric key remains stable
     std::vector<std::string> descriptions;  ///< from TOOL LIST and from the comment after the change
     std::size_t changes = 0;
     std::vector<std::size_t> changeLines;
@@ -148,6 +149,8 @@ struct Report {
     bool hasMachineProfile = false;
     FileInfo file;
     std::vector<Segment> segments;          ///< executed trajectory in source order
+    std::map<int,std::string> toolNames;
+    std::vector<std::string> headerTools, headerOperations;
 
     std::vector<ToolUse> toolSequence;
     std::vector<int> preselectSequence;

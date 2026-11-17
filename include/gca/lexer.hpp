@@ -3,12 +3,17 @@
 #pragma once
 
 #include <cstddef>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace gca {
+
+struct LexRules {
+    bool extended = false;  ///< controller keywords, @ comments, strings and channel selectors
+};
 
 /// One address word, e.g. G05.1, X-4., T1. Letter is stored upper-case.
 struct Word {
@@ -19,6 +24,10 @@ struct Word {
     std::size_t pos = 0;            ///< offset of rawText in Block::raw
     bool precededBySpace = true;    ///< whitespace (or line start) before the word
     bool lowercase = false;         ///< letter was written in lower case
+    std::string address;            ///< extended address (AN, AH, ...); empty for a single letter
+    std::string stringValue;        ///< quoted tool name, without quotes
+    int channel = 0;                ///< 0 = current spindle, otherwise S(n) / M...S(n)
+    bool expression = false;        ///< value depends on a macro variable
 
     /// Number part of rawText (without the letter).
     [[nodiscard]] std::string_view rawNumber() const {
@@ -44,12 +53,19 @@ struct Block {
     bool blockDelete = false;       ///< leading '/'
     bool isPercent = false;         ///< line is just '%'
     bool trailingWhitespace = false;
+    std::optional<int> definition;   ///< GDEF number; its words are parameters, never motion
+    bool definitionEnd = false, cycleCall = false;
+    bool control = false;           ///< macro/control statement; retained but not executed
+    std::string command;            ///< GOTO, CALL, IF, ...
+    std::optional<long> jumpTarget;
+    std::string callName;
 
     [[nodiscard]] bool isBlank() const {
-        return words.empty() && comments.empty() && !isPercent;
+        return words.empty() && comments.empty() && !isPercent && !definition && !cycleCall && !control;
     }
     /// First word with the given letter, or nullptr.
     [[nodiscard]] const Word* find(char letter) const;
+    [[nodiscard]] const Word* findAddress(std::string_view address) const;
     [[nodiscard]] bool has(char letter) const { return find(letter) != nullptr; }
 };
 
@@ -64,6 +80,8 @@ struct Program {
     std::size_t crlfLines = 0;
     std::size_t lfLines = 0;
     std::size_t noEolLines = 0;         ///< last line without end-of-line
+    LexRules rules;
+    std::map<int, std::string> toolNames;
 };
 
 /// Locale-independent number parser: [+-]digits[.digits] | [+-].digits | [+-]digits.
@@ -71,9 +89,9 @@ struct Program {
 
 /// Tokenize one line.
 [[nodiscard]] Block lexLine(std::string_view line, std::size_t lineNo,
-                            std::vector<Diagnostic>* diagnostics = nullptr);
+                            std::vector<Diagnostic>* diagnostics = nullptr, LexRules rules = {});
 
 /// Split text into lines (CRLF or LF) and tokenize every line.
-[[nodiscard]] Program parseProgram(std::string_view text);
+[[nodiscard]] Program parseProgram(std::string_view text, LexRules rules = {});
 
 } // namespace gca

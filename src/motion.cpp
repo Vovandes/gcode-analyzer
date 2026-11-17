@@ -120,6 +120,7 @@ PlaneAxes planeAxes(Plane plane) {
 std::optional<double> feedMmPerMin(const Segment& seg) {
     if (!seg.hasF || !(seg.feed > 0.0)) return std::nullopt;
     if (seg.feedMode == FeedMode::PerMinute) return seg.feed;
+    if (seg.feedMode == FeedMode::Unsupported) return std::nullopt;
     if (!seg.hasS || !(seg.s > 0.0) || seg.spindle == SpindleDir::Off) return std::nullopt;
     return seg.feed * seg.s;
 }
