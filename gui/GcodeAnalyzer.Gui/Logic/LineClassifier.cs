@@ -64,6 +64,6 @@ public static class SeverityStyle
     public static Color Background(string? severity) => severity switch
     { "error" => Color.LightCoral, "warning" => Color.FromArgb(255, 209, 140), "info" => Color.AliceBlue, _ => Color.White };
     public static Color Foreground(string? severity) => severity switch
-    { "error" => Color.DarkRed, "warning" => Color.FromArgb(150, 75, 0), "info" => Color.SteelBlue, _ => Color.Black };
+    { "error" => Color.DarkRed, "warning" => Color.FromArgb(150, 75, 0), "info" => Color.SteelBlue, "ok" => Color.DarkGreen, _ => Color.Black };
     public static string Label(string severity) => severity switch { "error" => "Ошибка", "warning" => "Предупреждение", _ => "Информация" };
 }

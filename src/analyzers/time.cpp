@@ -46,6 +46,13 @@ void TimeAnalyzer::onSegment(const Segment& seg, const BlockContext&) {
     add(total_, seg, m);
     if (perTool_.find(seg.tool) == perTool_.end()) toolOrder_.push_back(seg.tool);
     add(perTool_[seg.tool], seg, m);
+    auto& detail = detail_[seg.tool];
+    detail.workingMm += m.feedMm;
+    detail.idleMm += m.rapidMm;
+    if (seg.kind == SegmentKind::Linear || seg.kind == SegmentKind::Arc || seg.kind == SegmentKind::CycleHole) {
+        if (const auto rate = feedMmPerMin(seg)) detail.feedMmPerMin.add(*rate);
+        if (seg.hasS && seg.s > 0 && seg.spindle != SpindleDir::Off) detail.rpm.add(seg.s);
+    }
 }
 
 void TimeAnalyzer::finish(Report& report) {
@@ -53,7 +60,12 @@ void TimeAnalyzer::finish(Report& report) {
     report.partialSegments = partial_;
     report.segmentsWithoutFeed = noFeed_;
     report.timeNotes = notes_;
-    for (const int t : toolOrder_) report.tool(t).time = perTool_[t];
+    for (const int t : toolOrder_) {
+        auto& tool = report.tool(t);
+        tool.time = perTool_[t];
+        tool.detail = detail_[t];
+        tool.detail.motionTime = tool.time;
+    }
 }
 
 } // namespace gca

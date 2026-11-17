@@ -11,6 +11,28 @@ namespace gca {
 namespace {
 
 constexpr double kArcRadiusTolerance = 0.02;    // mm; Fanuc alarms around 0.01..0.05 depending on parameter
+constexpr double kPositionTolerance = 1e-6;    // mm; tolerate coordinate rounding in comparisons
+
+bool isCutting(SegmentKind kind) {
+    return kind == SegmentKind::Linear || kind == SegmentKind::Arc || kind == SegmentKind::CycleHole;
+}
+
+bool hasM(const Block& block, int number) {
+    return std::any_of(block.words.begin(), block.words.end(), [number](const Word& word) {
+        return word.letter == 'M' && word.hasValue && word.address.empty() && word.value == number;
+    });
+}
+
+bool machineRetract(double z, const Profile& profile) {
+    const auto* machine = profile.machine();
+    if (!machine) return true;
+    const auto& axis = machine->axes[kAxisZ];
+    if ((axis.min && z < *axis.min - kPositionTolerance) ||
+        (axis.max && z > *axis.max + kPositionTolerance)) return false;
+    if (!profile.dialect().uncertainHomeIntermediate()) return true;
+    const auto reference = axis.home ? axis.home : axis.max;
+    return !reference || z >= *reference - kPositionTolerance;
+}
 
 std::string trimmed(const std::string& s) {
     std::size_t a = 0;
@@ -45,6 +67,40 @@ void WarningsAnalyzer::emitOncePerOp(std::size_t line, const char* code, std::st
 void WarningsAnalyzer::onBlock(const BlockContext& ctx) {
     const Block& b = ctx.block;
     const IDialect& dialect = ctx.profile.dialect();
+    checkTermination(ctx);
+    for (const auto& event : ctx.effect.toolEvents) checkToolChange(event, ctx);
+
+    // Some legacy Fanuc profiles omit G53 segments from the trajectory.
+    if (!ctx.effect.dataBlock && !b.control && ctx.effect.segments.empty()) {
+        const auto* z = b.find('Z');
+        const bool g53 = std::any_of(b.words.begin(), b.words.end(), [&ctx](const Word& w) {
+            if (w.letter != 'G' || !w.hasValue) return false;
+            const auto info = ctx.profile.g(w.value);
+            return info && info->cls == GClass::MachineCoords;
+        });
+        if (g53 && z && z->hasValue) {
+            retractCommand_ = machineRetract(z->value, ctx.profile);
+            workRapidZ_ = retractIndeterminate_ = false;
+            retractZ_.reset();
+        }
+    }
+    if (ctx.effect.definitionCall) {
+        const auto& call = *ctx.effect.definitionCall;
+        const auto info = dialect.definition(call.number);
+        retractCommand_ = call.complete && info && info->homeZ;
+        retractIndeterminate_ = call.complete;
+        workRapidZ_ = false;
+        retractZ_.reset();
+    } else if (b.control || ctx.effect.unmodeledMotion) {
+        retractIndeterminate_ |= retractCommand_ || workRapidZ_;
+        retractCommand_ = workRapidZ_ = false;
+        retractZ_.reset();
+    }
+    if (!ctx.effect.dataBlock && !b.control &&
+        (ctx.effect.segments.empty() || ctx.effect.segments.front().kind != SegmentKind::Dwell)) {
+        if (const auto* f = b.find('F'); f && f->hasValue && f->value == 0 && ctx.after.hasF && ctx.after.f == 0)
+            checkZeroFeed(b.lineNo);
+    }
     std::string upperRaw = b.raw;
     for (auto& c : upperRaw) if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
 
@@ -172,7 +228,110 @@ void WarningsAnalyzer::onBlock(const BlockContext& ctx) {
     }
 }
 
+void WarningsAnalyzer::checkTermination(const BlockContext& ctx) {
+    const auto& b = ctx.block;
+    bool startsDefinition = b.definition.has_value();
+    bool endsDefinition = b.definitionEnd;
+    if (!program_.rules.extended && (defining_ || (b.find('G') && !b.find('G')->hasValue))) {
+        const auto extended = lexLine(b.raw, b.lineNo, nullptr, LexRules{true});
+        startsDefinition = extended.definition.has_value();
+        endsDefinition = extended.definitionEnd;
+    }
+    const bool executable = b.control || b.cycleCall ||
+        std::any_of(b.words.begin(), b.words.end(), [](const Word& w) { return w.letter != 'N' && w.letter != 'O'; });
+    if (executable || startsDefinition || endsDefinition) lastSignificant_ = b.lineNo;
+    if (defining_ || startsDefinition) {
+        defining_ = !endsDefinition;
+        return;
+    }
+    if (!executable) return;
+    lastExecutable_ = b.lineNo;
+    const auto ret = std::find_if(b.words.begin(), b.words.end(), [](const Word& w) { return w.letter != 'N'; });
+    const bool bareRet = ret != b.words.end() && b.words.end() - ret == 3 &&
+        ret[0].letter == 'R' && ret[1].letter == 'E' && ret[2].letter == 'T' &&
+        !ret[0].hasValue && !ret[1].hasValue && !ret[2].hasValue;
+    subReturn_ = b.command == "RET" || bareRet || hasM(b, 17) || hasM(b, 99);
+    if (hasM(b, 30) && !firstM30_) firstM30_ = b.lineNo;
+    if (!programEndLine_) {
+        if (ctx.after.ended) programEndLine_ = b.lineNo;
+        endLengthComp_ = ctx.after.lengthComp;
+        endRadiusComp_ = ctx.after.comp != CompMode::Off;
+    }
+}
+
+void WarningsAnalyzer::trackRetract(const Segment& seg, const Profile& profile) {
+    if (seg.kind == SegmentKind::Dwell) return;
+    if (seg.kind == SegmentKind::Home) {
+        if (seg.axes[kAxisZ]) {
+            retractCommand_ = seg.homeCode == "G28";
+            workRapidZ_ = retractIndeterminate_ = false;
+            retractZ_.reset();
+        }
+        return;
+    }
+    if (!seg.machineCoordinates && !seg.approximate) {
+        auto& range = operationZ_[{seg.wcs, seg.coordinateEpoch}];
+        if (seg.from.known[kAxisZ]) range.add(seg.from.v[kAxisZ]);
+        if (seg.to.known[kAxisZ]) range.add(seg.to.v[kAxisZ]);
+        if (seg.kind == SegmentKind::CycleHole) {
+            range.add(seg.cycle.zR);
+            range.add(seg.cycle.zBottom);
+        }
+        if (seg.kind == SegmentKind::Arc && seg.arc.plane != Plane::XY) {
+            const auto arc = computeSegmentArc(seg);
+            const auto axes = planeAxes(seg.arc.plane);
+            const auto u = static_cast<std::size_t>(axes.u), v = static_cast<std::size_t>(axes.v);
+            const auto bounds = arcExtents(arc, seg.from.v[u], seg.from.v[v], seg.to.v[u], seg.to.v[v]);
+            if (arc.ok) range.add(axes.u == kAxisZ ? bounds.uMax : bounds.vMax);
+        }
+    }
+
+    if (seg.machineCoordinates && seg.axes[kAxisZ]) {
+        retractCommand_ = seg.to.known[kAxisZ] && machineRetract(seg.to.v[kAxisZ], profile);
+        workRapidZ_ = retractIndeterminate_ = false;
+        retractZ_.reset();
+    } else if (seg.axes[kAxisZ] || isCutting(seg.kind)) {
+        retractCommand_ = false;
+        workRapidZ_ = seg.kind == SegmentKind::Rapid && !seg.approximate;
+        retractIndeterminate_ = seg.kind == SegmentKind::Rapid && (seg.approximate || !seg.to.known[kAxisZ]);
+        retractZ_ = workRapidZ_ && seg.to.known[kAxisZ] ? std::optional(seg.to.v[kAxisZ]) : std::nullopt;
+        if (retractZ_) retractFrame_ = {seg.wcs, seg.coordinateEpoch};
+    }
+}
+
+void WarningsAnalyzer::checkArc(const Segment& seg) {
+    const auto& arc = seg.arc;
+    const auto axes = planeAxes(arc.plane);
+    const char outside = arc.plane == Plane::XY ? 'K' : arc.plane == Plane::ZX ? 'J' : 'I';
+    const auto offset = [&arc](char address) {
+        return address == 'I' ? arc.i : address == 'J' ? arc.j : arc.k;
+    };
+    if (offset(outside))
+        emit(seg.lineNo, warn::kArcPlane, std::string("адрес центра ") + outside + " вне активной плоскости дуги");
+    const auto u = offset(axes.uOffset), v = offset(axes.vOffset);
+    if (arc.r && (u || v)) {
+        const double radius = std::hypot(u.value_or(0), v.value_or(0));
+        const double delta = std::fabs(std::fabs(*arc.r) - radius);
+        if (delta > arcTolerance_ + 1e-12) {
+            std::string message = "R и I/J/K задают разные радиусы (расхождение " + trimmedNumber(delta) + " мм)";
+            if (arc.radiusPriority) message += ". Стойка использует R";
+            emit(seg.lineNo, warn::kMixedArc, std::move(message));
+        }
+    }
+
+    const ArcResult a = computeSegmentArc(seg);
+    if (!a.ok) {
+        if (a.error != "unknown start point") emit(seg.lineNo, warn::kArc, "дуга не рассчитана: " + a.error);
+    } else {
+        if (a.radiusMismatch > kArcRadiusTolerance)
+            emit(seg.lineNo, warn::kArc, "радиусы начала и конца дуги различаются на " + trimmedNumber(a.radiusMismatch) + " мм");
+        if (a.helixHeight > 1e-9)
+            emitOncePerOp(seg.lineNo, warn::kHelix, "винтовая дуга: ход по оси " + std::string(1, kAxisLetters[axes.h]));
+    }
+}
+
 void WarningsAnalyzer::onSegment(const Segment& seg, const BlockContext& ctx) {
+    trackRetract(seg, ctx.profile);
     if (seg.homePathUnknown && once_.insert("homePath").second)
         emit(seg.lineNo, warn::kApproximate, "G28 GNC62: трактовка промежуточной точки требует проверки на станке; путь и время возврата не рассчитаны");
     if (seg.kind == SegmentKind::Home || seg.kind == SegmentKind::Dwell) return;
@@ -196,37 +355,73 @@ void WarningsAnalyzer::onSegment(const Segment& seg, const BlockContext& ctx) {
         emitOncePerOp(line, warn::kCompRapid, "коррекция радиуса G41/G42 активна при G0");
     }
 
-    if (seg.kind == SegmentKind::Linear || seg.kind == SegmentKind::Arc || seg.kind == SegmentKind::CycleHole) {
+    if (isCutting(seg.kind)) {
         if (seg.spindle == SpindleDir::Off) {
             emitOncePerOp(line, warn::kNoSpindle, "рабочий ход при невключённом шпинделе (нет M3/M4)");
-        } else if (!seg.surfaceSpeed && (!seg.hasS || !(seg.s > 0.0))) {
-            emitOncePerOp(line, warn::kNoSpindle, "рабочий ход без заданных оборотов S");
+        } else if ((!seg.surfaceSpeed && !seg.hasS) || !(seg.s > 0.0)) {
+            emitOncePerOp(line, warn::kNoSpindle, "рабочий ход без положительного S");
         }
-        if (!seg.hasF || !(seg.feed > 0.0)) {
-            emitOncePerOp(line, warn::kNoFeed, "рабочий ход без подачи F");
-        }
+        if (!seg.hasF || seg.feed < 0.0)
+            emitOncePerOp(line, warn::kNoFeed, "рабочий ход без положительной подачи F");
+        else if (seg.feed == 0.0)
+            checkZeroFeed(line);
+        else if (ctx.after.feedTool != 0 && ctx.after.feedSetLine < lastToolChange_)
+            emitOncePerOp(line, warn::kInheritedFeed, "подача унаследована от T" + std::to_string(ctx.after.feedTool));
     }
 
-    if (seg.kind == SegmentKind::Arc) {
-        const ArcResult a = computeSegmentArc(seg);
-        if (!a.ok) {
-            if (a.error != "unknown start point") emit(line, warn::kArc, "дуга не рассчитана: " + a.error);
-        } else if (a.radiusMismatch > kArcRadiusTolerance) {
-            emit(line, warn::kArc, "радиусы начала и конца дуги различаются на " + trimmedNumber(a.radiusMismatch) + " мм");
-        }
-    }
+    if (seg.kind == SegmentKind::Arc) checkArc(seg);
 }
 
-void WarningsAnalyzer::onToolChange(const ToolEvent& ev, const BlockContext&) {
+void WarningsAnalyzer::checkZeroFeed(std::size_t line) {
+    if (zeroFeedReported_) return;
+    zeroFeedReported_ = true;
+    emit(line, warn::kNoFeed, "нулевая рабочая подача F0");
+}
+
+void WarningsAnalyzer::checkToolChange(const ToolEvent& ev, const BlockContext& ctx) {
     if (ev.kind != ToolEvent::Kind::Change) return;
+    const auto* machine = ctx.profile.machine();
+    auto threshold = safeZ_;
+    if (machine && !threshold) {
+        threshold = machine->safeZ;
+        if (!threshold) {
+            const auto it = operationZ_.find(retractFrame_);
+            if (it != operationZ_.end() && it->second.has) threshold = it->second.max;
+        }
+    }
+    const bool safeRapid = workRapidZ_ && (!threshold || (retractZ_ && *retractZ_ >= *threshold - kPositionTolerance));
+    if ((machine || threshold) && !retractCommand_ && !safeRapid) {
+        if (retractIndeterminate_)
+            emitOncePerOp(ev.lineNo, warn::kApproximate, "отвод по Z перед M6 не подтверждён: неизвестна конечная позиция или преобразование СК");
+        else
+            emit(ev.lineNo, warn::kNoRetract, "перед сменой инструмента M6 нет отвода по Z на безопасную высоту");
+    }
+    retractCommand_ = workRapidZ_ = retractIndeterminate_ = false;
+    retractZ_.reset();
+    operationZ_.clear();
     if (ev.comp != CompMode::Off) emit(ev.lineNo, warn::kChangeComp, "смена инструмента без отмены коррекции радиуса (G40)");
     if (ev.cycleActive) emit(ev.lineNo, warn::kCycleActive, "смена инструмента: цикл не отменён G80");
-    if (ev.tool == 0) emit(ev.lineNo, warn::kChangeNoTool, "M6 без номера инструмента и без предвыбора T");
+    if (ev.tool == 0 && !(ev.hadTWord && ctx.profile.dialect().allowsToolUnload()))
+        emit(ev.lineNo, warn::kChangeNoTool, "M6 без номера инструмента и без предвыбора T");
     ++op_;
+    lastToolChange_ = ev.lineNo;
+    zeroFeedReported_ = false;
     opHasMotion_ = false;
 }
 
 void WarningsAnalyzer::finish(Report& report) {
+    const bool mainProgram = lastExecutable_ && !subReturn_;
+    if (!programEndLine_ && mainProgram)
+        emit(lastExecutable_, warn::kMissingEnd, "основная программа не завершена M30 или M2");
+    if (firstM30_ && firstM30_ < lastSignificant_)
+        emit(firstM30_, warn::kEarlyEnd, "после M30 есть значимые кадры");
+    if ((programEndLine_ || mainProgram) && (endRadiusComp_ || endLengthComp_)) {
+        std::string message = "в конце программы не отменена коррекция";
+        if (endRadiusComp_) message += " радиуса (G40)";
+        if (endRadiusComp_ && endLengthComp_) message += " и";
+        if (endLengthComp_) message += " длины (G49)";
+        emit(programEndLine_ ? programEndLine_ : lastExecutable_, warn::kEndCompensation, std::move(message));
+    }
     for (const auto& [code, info] : unknown_) {
         if (info.second > 1) {
             warnings_[info.first].message += " (всего вхождений: " + std::to_string(info.second) + ")";

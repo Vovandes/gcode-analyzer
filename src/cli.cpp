@@ -119,6 +119,17 @@ int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
             options.rapidFeedMmPerMin = *v;
             continue;
         }
+        if (a == "--safe-z" || a == "--arc-radius-tolerance") {
+            if (!needValue()) return kExitBadArguments;
+            const auto value = parseNumber(args[++i]);
+            if (!value || (a == "--arc-radius-tolerance" && *value < 0)) {
+                err << "Недопустимое значение для " << a << '\n';
+                return kExitBadArguments;
+            }
+            if (a == "--safe-z") options.safeZ = *value;
+            else options.arcRadiusTolerance = *value;
+            continue;
+        }
         if (!a.empty() && a.front() == '-') {
             err << "Неизвестная опция: " << a << '\n' << helpText();
             return kExitBadArguments;

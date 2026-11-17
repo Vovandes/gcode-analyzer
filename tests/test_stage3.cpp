@@ -20,7 +20,7 @@ const char* kBase =
     "G0 G43 Z10. H1\n"
     "S1000 M3\n";
 
-std::string prog(const std::string& body, const std::string& tail = "M5\nM30\n") {
+std::string prog(const std::string& body, const std::string& tail = "M5 G49\nM30\n") {
     return std::string(kBase) + body + tail;
 }
 
@@ -136,9 +136,12 @@ TEST_CASE("warnings carry line number and block text and are sorted", "[warnings
     CHECK(r.warnings.front().text.empty() == false);
 }
 
-TEST_CASE("samples produce no warnings", "[samples][stage3]") {
-    CHECK(analyze(sample1()).warnings.empty());
-    CHECK(analyze(sample2()).warnings.empty());
+TEST_CASE("samples produce only helix information", "[samples][stage3]") {
+    for (const auto& text : {sample1(), sample2()}) {
+        const auto report = analyze(text);
+        REQUIRE(report.warnings.size() == 3);
+        for (const auto& warning : report.warnings) CHECK(warning.code == warn::kHelix);
+    }
 }
 
 TEST_CASE("WCS usage: G54 found in the samples", "[samples][stage3][wcs]") {

@@ -173,21 +173,29 @@ void MachineTimeAnalyzer::finish(Report& report) {
             junction[i] = std::min({prev.speed, next.speed, std::sqrt(2 * prev.acceleration * prev.length), std::sqrt(2 * next.acceleration * next.length)});
     }
     result_.motion.rapidSec = result_.motion.feedSec = result_.motion.cycleSec = result_.motion.dwellSec = 0;
+    std::map<int, TimeBreakdown*> perTool;
+    for (auto& tool : report.tools) {
+        auto& time = tool.detail.motionTime;
+        time.rapidSec = time.feedSec = time.cycleSec = time.dwellSec = 0;
+        perTool.emplace(tool.tool, &time);
+    }
     for (std::size_t i = 0; i < moves.size(); ++i) {
         const auto& s = moves[i];
         const auto original = measureSegment(s, rapid_);
+        auto& time = *perTool.at(s.tool);
+        double rapidSec = 0, feedSec = 0, cycleSec = 0, dwellSec = 0;
         bool fixedHome = false;
         switch (s.kind) {
-        case SegmentKind::Rapid: result_.motion.rapidSec += rapidTime(s.from, s.to, p, rapid_, result_); break;
+        case SegmentKind::Rapid: rapidSec = rapidTime(s.from, s.to, p, rapid_, result_); break;
         case SegmentKind::Linear:
         case SegmentKind::Arc:
-            result_.motion.feedSec += feed[i].valid ? acceleratedSeconds(feed[i].length, feed[i].speed, feed[i].acceleration, junction[i], junction[i + 1]) : original.feedSec;
+            feedSec = feed[i].valid ? acceleratedSeconds(feed[i].length, feed[i].speed, feed[i].acceleration, junction[i], junction[i + 1]) : original.feedSec;
             break;
         case SegmentKind::CycleHole:
-            result_.motion.cycleSec += cycleTime(s, p, rapid_, result_);
-            result_.motion.dwellSec += original.dwellSec;
+            cycleSec = cycleTime(s, p, rapid_, result_);
+            dwellSec = original.dwellSec;
             break;
-        case SegmentKind::Dwell: result_.motion.dwellSec += original.dwellSec; break;
+        case SegmentKind::Dwell: dwellSec = original.dwellSec; break;
         case SegmentKind::Home: {
             bool known = true;
             for (std::size_t a = 0; a < kAxisCount; ++a) if (s.axes[a]) known = known && s.from.known[a] && s.intermediate.known[a] && s.to.known[a];
@@ -197,6 +205,14 @@ void MachineTimeAnalyzer::finish(Report& report) {
             break;
         }
         }
+        time.rapidSec += rapidSec;
+        time.feedSec += feedSec;
+        time.cycleSec += cycleSec;
+        time.dwellSec += dwellSec;
+        result_.motion.rapidSec += rapidSec;
+        result_.motion.feedSec += feedSec;
+        result_.motion.cycleSec += cycleSec;
+        result_.motion.dwellSec += dwellSec;
         if (s.approximate) note(result_, "Номинальная геометрия: локальная СК, RTCP или точение; время является приближением");
         if (s.surfaceSpeed) note(result_, "S в режиме постоянной скорости резания не является оборотами; G95 без известного RPM по времени не рассчитан");
         if (s.axes[4] || s.axes[5]) {

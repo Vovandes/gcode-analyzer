@@ -20,11 +20,13 @@ private:
     std::vector<ToolUse> sequence_;
     std::vector<int> preselects_;
     std::map<int, std::vector<std::string>> listDescriptions_;   ///< from "( Tn: ... )"
+    std::map<int, double> diameters_;
     std::map<int, std::vector<std::string>> changeDescriptions_; ///< first comment after a change
     std::map<int, std::vector<std::size_t>> changeLines_;
     std::map<int, std::set<int>> h_;
     std::map<int, std::set<int>> d_;
     int pendingTool_ = -1;      ///< change waiting for its description comment
+    bool readingToolList_ = false;
     int lastPreselect_ = 0;
     std::size_t optionalStops_ = 0;
     std::size_t programStops_ = 0;

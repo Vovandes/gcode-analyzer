@@ -8,6 +8,21 @@ namespace {
 
 bool hasDecimalPoint(const Word& w) { return w.rawText.find('.') != std::string::npos; }
 
+ArcData readArc(const Block& block, const ModalState& state, const IDialect& dialect) {
+    ArcData arc;
+    arc.cw = state.motion == GClass::ArcCw;
+    arc.plane = state.plane;
+    arc.radiusPriority = dialect.arcRadiusPriority();
+    for (const auto& word : block.words) {
+        if (!word.hasValue || !word.address.empty()) continue;
+        if (word.letter == 'I') arc.i = word.value;
+        else if (word.letter == 'J') arc.j = word.value;
+        else if (word.letter == 'K') arc.k = word.value;
+        else if (word.letter == 'R') arc.r = word.value;
+    }
+    return arc;
+}
+
 } // namespace
 
 Segment ModalMachine::makeSegment(SegmentKind kind, std::size_t lineNo, const Position& from) const {
@@ -81,6 +96,7 @@ BlockEffect ModalMachine::apply(const Block& b) {
     bool setPosition = false;
     bool cycleInBlock = false;
     bool spindleLimit = false;
+    bool feedSet = false;
 
     // 1. G words (modal updates)
     for (const auto& w : b.words) {
@@ -199,7 +215,10 @@ BlockEffect ModalMachine::apply(const Block& b) {
         if (!w.hasValue || !w.address.empty()) continue;
         switch (w.letter) {
         case 'F':
-            if (!(dwell && profile_.dialect().feedDwellSeconds())) { st.f = w.value; st.hasF = true; }
+            if (!(dwell && profile_.dialect().feedDwellSeconds())) {
+                st.f = w.value;
+                st.hasF = feedSet = true;
+            }
             break;
         case 'S':
             if (spindleLimit) break;
@@ -235,7 +254,13 @@ BlockEffect ModalMachine::apply(const Block& b) {
             continue;
         }
         switch (*mc) {
-        case MClass::ToolChange: if (m6Idx == b.words.size()) m6Idx = i; break;
+        case MClass::ToolChange:
+            if (m6Idx == b.words.size()) {
+                m6Idx = i;
+                st.spindle = SpindleDir::Off;
+                for (auto& [channel, spindle] : st.spindles) spindle.direction = SpindleDir::Off;
+            }
+            break;
         case MClass::SpindleCw: st.spindle = SpindleDir::Cw; break;
         case MClass::SpindleCcw: st.spindle = SpindleDir::Ccw; break;
         case MClass::SpindleStop: st.spindle = SpindleDir::Off; break;
@@ -273,6 +298,11 @@ BlockEffect ModalMachine::apply(const Block& b) {
         ev.tool = static_cast<int>(std::lround(b.words[tIdx].value));
         st.preselectedTool = ev.tool;
         eff.toolEvents.push_back(ev);
+    }
+
+    if (feedSet) {
+        st.feedTool = st.activeTool;
+        st.feedSetLine = b.lineNo;
     }
 
     // 4. motion
@@ -323,19 +353,11 @@ BlockEffect ModalMachine::apply(const Block& b) {
         eff.segments.push_back(std::move(seg));
     } else if (machineCoords && !nonMotion && !dwell && (anyAxis ||
                (st.hasMotion && (st.motion == GClass::ArcCw || st.motion == GClass::ArcCcw) &&
-                (b.has('I') || b.has('J') || b.has('K'))))) {
+                (b.has('I') || b.has('J') || b.has('K') || b.has('R'))))) {
         auto kind = st.hasMotion && st.motion == GClass::Linear ? SegmentKind::Linear : SegmentKind::Rapid;
         if (st.hasMotion && (st.motion == GClass::ArcCw || st.motion == GClass::ArcCcw)) kind = SegmentKind::Arc;
         Segment seg = makeSegment(kind, b.lineNo, before);
-        if (kind == SegmentKind::Arc) {
-            seg.arc.cw = st.motion == GClass::ArcCw; seg.arc.plane = st.plane;
-            for (const auto& w : b.words) if (w.hasValue && w.address.empty()) {
-                if (w.letter == 'I') seg.arc.i = w.value;
-                else if (w.letter == 'J') seg.arc.j = w.value;
-                else if (w.letter == 'K') seg.arc.k = w.value;
-                else if (w.letter == 'R') seg.arc.r = w.value;
-            }
-        }
+        if (kind == SegmentKind::Arc) seg.arc = readArc(b, st, profile_.dialect());
         seg.machineCoordinates = true;
         seg.approximate = false;
         seg.axes = mentioned;
@@ -420,31 +442,14 @@ BlockEffect ModalMachine::apply(const Block& b) {
             else if (st.motion == GClass::ArcCw || st.motion == GClass::ArcCcw) kind = SegmentKind::Arc;
             Segment seg = makeSegment(kind, b.lineNo, before);
             seg.axes = mentioned;
-            if (kind == SegmentKind::Arc) {
-                seg.arc.cw = (st.motion == GClass::ArcCw);
-                seg.arc.plane = st.plane;
-                for (const auto& w : b.words) {
-                    if (!w.hasValue) continue;
-                    if (w.letter == 'I') seg.arc.i = w.value;
-                    else if (w.letter == 'J') seg.arc.j = w.value;
-                    else if (w.letter == 'K') seg.arc.k = w.value;
-                    else if (w.letter == 'R') seg.arc.r = w.value;
-                }
-            }
+            if (kind == SegmentKind::Arc) seg.arc = readArc(b, st, profile_.dialect());
             eff.segments.push_back(std::move(seg));
         }
     } else if (st.hasMotion && (st.motion == GClass::ArcCw || st.motion == GClass::ArcCcw) &&
-               (b.has('I') || b.has('J') || b.has('K'))) {
+               (b.has('I') || b.has('J') || b.has('K') || b.has('R'))) {
         // full circle without end point: "G2 I10." -> start == end
         Segment seg = makeSegment(SegmentKind::Arc, b.lineNo, before);
-        seg.arc.cw = (st.motion == GClass::ArcCw);
-        seg.arc.plane = st.plane;
-        for (const auto& w : b.words) {
-            if (!w.hasValue) continue;
-            if (w.letter == 'I') seg.arc.i = w.value;
-            else if (w.letter == 'J') seg.arc.j = w.value;
-            else if (w.letter == 'K') seg.arc.k = w.value;
-        }
+        seg.arc = readArc(b, st, profile_.dialect());
         eff.segments.push_back(std::move(seg));
     }
 

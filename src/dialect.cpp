@@ -183,6 +183,7 @@ const MEntry kMTable[] = {
 
 class FanucMillDialect final : public IDialect {
 public:
+    bool arcRadiusPriority() const override { return true; }
     FanucMillDialect() {
         for (const auto& e : kGTable) gIndex_.emplace(e.code, &e);
         for (const auto& e : kMTable) mIndex_.emplace(e.code, &e);

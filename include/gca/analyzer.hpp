@@ -27,6 +27,8 @@ struct AnalysisOptions {
     std::filesystem::path machinesDirectory;
     std::optional<std::filesystem::path> machineFile;
     std::map<std::string, std::array<std::optional<double>, 3>> wcsOffsets;
+    double arcRadiusTolerance = 0.01;  ///< mixed R and I/J/K, in mm
+    std::optional<double> safeZ;       ///< work-coordinate clearance, overriding the profile
 };
 
 /// Input file cannot be read.

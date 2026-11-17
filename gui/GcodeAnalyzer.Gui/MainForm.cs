@@ -19,6 +19,8 @@ public class MainForm : Form
     private readonly MachineProfileSelection _profileSelection = new();
     private readonly MachineLimitsView _limitsView = new() { Dock = DockStyle.Fill };
     private readonly TabPage _limitsTab = new("Пределы станка") { Name = "limits" };
+    private readonly ToolDetailsView _toolsView = new() { Dock = DockStyle.Fill };
+    private readonly TabPage _toolsTab = new("Инструменты") { Name = "tools" };
     private readonly TextBox _extraBox = new() { Dock = DockStyle.Fill };
     private readonly TextBox _exeBox = new() { Dock = DockStyle.Fill };
     private readonly Button _exeButton = new() { Text = "…", AutoSize = true };
@@ -47,6 +49,7 @@ public class MainForm : Form
     // Состояние
     private string? _inputFile;
     private List<ReportSection> _sections = new();
+    private ReportPresentation? _reportPresentation;
     private List<MachineInfo> _machines = new();
     private bool _busy;
 
@@ -69,6 +72,16 @@ public class MainForm : Form
         _exeButton.Click += (_, _) => ChooseExe();
         _profileButton.Click += (_, _) => ChooseProfile();
         _sectionList.SelectedIndexChanged += (_, _) => JumpToSection();
+        _reportBox.MouseDoubleClick += (_, e) =>
+        {
+            int row = _reportBox.GetLineFromCharIndex(_reportBox.GetCharIndexFromPosition(e.Location));
+            if (_reportPresentation is { } presentation && (uint)row < (uint)presentation.Lines.Count &&
+                presentation.Lines[row].ProgramLine is int line)
+            {
+                _tabs.SelectedTab = _trajectoryTab;
+                _workspace.SelectLine(line);
+            }
+        };
         _saveRadio.CheckedChanged += (_, _) => _bomCheck.Enabled = _saveRadio.Checked;
         DragEnter += OnDragEnter;
         DragDrop += OnDragDrop;
@@ -91,6 +104,11 @@ public class MainForm : Form
     }
 
     // ---------- Разметка окна ----------
+
+    private void AddAnalysisTabs() =>
+        _tabs.TabPages.AddRange(_settings.ReportFirst
+            ? [_reportTab, _trajectoryTab, _limitsTab, _toolsTab]
+            : [_trajectoryTab, _reportTab, _limitsTab, _toolsTab]);
 
     private void BuildLayout()
     {
@@ -127,8 +145,9 @@ public class MainForm : Form
         _reportTab.Controls.Add(split);
         _trajectoryTab.Controls.Add(_workspace);
         _limitsTab.Controls.Add(_limitsView);
-        _tabs.TabPages.AddRange(_settings.ReportFirst ? [_reportTab, _trajectoryTab, _limitsTab] : [_trajectoryTab, _reportTab, _limitsTab]);
-        _tabs.SelectedTab = _settings.ActiveTab == "report" ? _reportTab : _settings.ActiveTab == "limits" ? _limitsTab : _trajectoryTab;
+        _toolsTab.Controls.Add(_toolsView);
+        AddAnalysisTabs();
+        _tabs.SelectedTab = _tabs.TabPages[_settings.ActiveTab] ?? _trajectoryTab;
         var tabsMenu = new ContextMenuStrip();
         tabsMenu.Items.Add("Поменять вкладки местами", null, (_, _) =>
         {
@@ -136,7 +155,7 @@ public class MainForm : Form
             TabPage? selected = _tabs.SelectedTab;
             _settings.ReportFirst = !_settings.ReportFirst;
             _tabs.TabPages.Clear();
-            _tabs.TabPages.AddRange(_settings.ReportFirst ? [_reportTab, _trajectoryTab, _limitsTab] : [_trajectoryTab, _reportTab, _limitsTab]);
+            AddAnalysisTabs();
             _tabs.SelectedTab = selected;
         });
         _tabs.ContextMenuStrip = tabsMenu;
@@ -245,6 +264,8 @@ public class MainForm : Form
         _settings.LastFolder = Path.GetDirectoryName(path) ?? "";
         _workspace.ClearAnalysis();
         _limitsView.ShowChecks([]);
+        _toolsView.ShowTools(null);
+        _reportPresentation = null;
         _reportBox.Clear(); _sectionList.Items.Clear(); _sections.Clear();
         // В режиме «Показать» анализ стартует сразу; в режиме «Сохранить» ждём кнопку
         if (_showRadio.Checked) _ = RunAnalysisAsync();
@@ -351,24 +372,28 @@ public class MainForm : Form
     {
         if (analysis is null) { ShowError("CLI не вернул данные траектории."); return; }
         string[] lines = await File.ReadAllLinesAsync(input);
-        var prepared = await Task.Run(() => (Scene: TrajectoryScene.Build(analysis.Segments),
-            Lines: LineClassifier.Classify(lines, analysis.Segments, analysis.Warnings, analysis.File.Dialect),
-            Rtf: ReportHighlighter.ToRtf(report, analysis.Warnings)));
+        var prepared = await Task.Run(() =>
+        {
+            var presentation = ReportPresentation.Build(report, analysis);
+            return (Scene: TrajectoryScene.Build(analysis.Segments),
+                Lines: LineClassifier.Classify(lines, analysis.Segments, analysis.Warnings, analysis.File.Dialect),
+                Presentation: presentation, Rtf: ReportRtf.Render(presentation.Lines));
+        });
         if (IsDisposed) return;
         _workspace.SetAnalysis(prepared.Scene, prepared.Lines, analysis.Warnings);
         _limitsView.ShowChecks(analysis.Limits);
-        ShowReport(prepared.Rtf);
+        _toolsView.ShowTools(analysis);
+        ShowReport(prepared.Presentation, prepared.Rtf, ReportParser.FindMachine(report));
     }
 
-    private void ShowReport(string rtf)
+    private void ShowReport(ReportPresentation presentation, string rtf, string machine)
     {
+        _reportPresentation = presentation;
         _reportBox.Rtf = rtf;
-        // RichTextBox возвращает LF; позиции разделов считаем по фактическому Text.
-        string text = _reportBox.Text;
-        _sections = ReportParser.ParseSections(text);
+        _sections = presentation.Blocks.Select((block, i) =>
+            new ReportSection(block.Title, _reportBox.GetFirstCharIndexFromLine(presentation.HeadingLines[i]))).ToList();
         _sectionList.Items.Clear();
         foreach (ReportSection s in _sections) _sectionList.Items.Add(s.Title);
-        string machine = ReportParser.FindMachine(text);
         _machineLabel.Text = "Станок: " + (machine.Length > 0 ? machine : "—");
         _saveAsButton.Enabled = true;
     }
@@ -377,7 +402,7 @@ public class MainForm : Form
     private void JumpToSection()
     {
         int i = _sectionList.SelectedIndex;
-        if (i < 0 || i >= _sections.Count) return;
+        if (i < 0 || i >= _sections.Count || _sections[i].Offset < 0) return;
         _reportBox.SelectionStart = _sections[i].Offset;
         _reportBox.SelectionLength = 0;
         _reportBox.ScrollToCaret();

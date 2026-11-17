@@ -157,6 +157,15 @@ void segment(std::ostream& out, const Segment& s, double rapid) {
     out << '}';
 }
 
+void toolMetrics(std::ostream& out, const ToolMetrics& metrics) {
+    out << "{\"motionTime\":"; time(out, metrics.motionTime);
+    out << ",\"workingMm\":"; number(out, metrics.workingMm);
+    out << ",\"idleMm\":"; number(out, metrics.idleMm);
+    out << ",\"feedMmPerMin\":"; range(out, metrics.feedMmPerMin);
+    out << ",\"rpm\":"; range(out, metrics.rpm);
+    out << '}';
+}
+
 void tool(std::ostream& out, const ToolReport& t) {
     const auto text = [](std::ostream& o, const std::string& v) { string(o, v); };
     const auto integer = [](std::ostream& o, auto v) { o << v; };
@@ -166,6 +175,8 @@ void tool(std::ostream& out, const ToolReport& t) {
     out << ",\"hValues\":"; array(out, t.hValues, integer);
     out << ",\"dValues\":"; array(out, t.dValues, integer);
     out << ",\"time\":"; time(out, t.time);
+    out << ",\"diameterMm\":"; optional(out, t.diameterMm);
+    out << ",\"detail\":"; toolMetrics(out, t.detail);
     out << ",\"box\":"; box(out, t.box);
     out << ",\"workBox\":"; box(out, t.workBox);
     out << ",\"feedPerMin\":"; range(out, t.feedPerMin);
@@ -207,6 +218,8 @@ void writeJsonReport(const Report& report, std::ostream& output) {
         o << ",\"text\":"; string(o, w.text); o << '}';
     });
     out << ",\n  \"tools\":"; array(out, report.tools, tool);
+    out << ",\n  \"toolTotals\":{\"detail\":"; toolMetrics(out, report.toolTotals);
+    out << ",\"box\":"; box(out, report.toolTotalBox); out << '}';
     if (!report.headerTools.empty() || !report.headerOperations.empty()) {
         const auto text = [](std::ostream& o, const std::string& v) { string(o,v); };
         out << ",\n  \"header\":{\"tools\":"; array(out,report.headerTools,text);

@@ -63,6 +63,8 @@ struct ModalState {
     double s = 0.0;
     bool hasF = false;
     double f = 0.0;
+    int feedTool = 0;
+    std::size_t feedSetLine = 0;
     bool turning = false, transformed = false, rtcp = false, machineWcs = false, offsetsUnknown = false;
     std::size_t coordinateEpoch = 0;
     int spindleChannel = 0;
@@ -83,6 +85,7 @@ struct ArcData {
     bool cw = false;
     Plane plane = Plane::XY;
     std::optional<double> i, j, k, r;
+    bool radiusPriority = true;
 };
 
 struct CycleData {

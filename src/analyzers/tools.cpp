@@ -32,6 +32,21 @@ bool parseToolListEntry(const std::string& text, int& tool, std::string& desc) {
     return true;
 }
 
+std::optional<double> toolDiameter(const std::string& description) {
+    std::string_view rest(description);
+    while (!rest.empty()) {
+        const auto end = rest.find_first_of(" \t");
+        auto token = rest.substr(0, end);
+        if (token.size() > 1 && (token.front() == 'D' || token.front() == 'd')) {
+            const auto diameter = parseNumber(token.substr(1));
+            if (diameter && *diameter > 0) return diameter;
+        }
+        if (end == std::string_view::npos) break;
+        rest.remove_prefix(end + 1);
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 void ToolsAnalyzer::addUnique(std::vector<std::string>& v, const std::string& s) {
@@ -41,15 +56,27 @@ void ToolsAnalyzer::addUnique(std::vector<std::string>& v, const std::string& s)
 
 void ToolsAnalyzer::onBlock(const BlockContext& ctx) {
     for (const auto& c : ctx.block.comments) {
+        auto title = trim(c.text);
+        for (auto& ch : title) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+        if (title == "TOOL LIST:") {
+            readingToolList_ = true;
+            continue;
+        }
         int tool = 0;
         std::string desc;
         if (parseToolListEntry(c.text, tool, desc)) {
             addUnique(listDescriptions_[tool], desc);
+            if (readingToolList_)
+                if (const auto diameter = toolDiameter(desc)) diameters_.try_emplace(tool, *diameter);
         } else if (pendingTool_ >= 0) {
             addUnique(changeDescriptions_[pendingTool_], trim(c.text));
             pendingTool_ = -1;
         }
+        if (!title.empty() && desc.empty()) readingToolList_ = false;
     }
+    if (std::any_of(ctx.block.words.begin(), ctx.block.words.end(),
+                    [](const Word& w) { return w.letter != 'O' && w.letter != 'N'; }))
+        readingToolList_ = false;
     if (ctx.effect.dataBlock || ctx.block.control) return;
     for (const auto& w : ctx.block.words) {
         if (!w.hasValue || !w.address.empty()) continue;
@@ -97,6 +124,7 @@ void ToolsAnalyzer::finish(Report& report) {
         ++t.changes;
     }
     for (auto& t : report.tools) {
+        if (const auto diameter = diameters_.find(t.tool); diameter != diameters_.end()) t.diameterMm = diameter->second;
         if (const auto name = report.toolNames.find(t.tool); name != report.toolNames.end()) {
             t.name = name->second;
             for (const auto& entry : report.headerTools)

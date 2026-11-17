@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.RegularExpressions;
 
 namespace GcodeAnalyzer.Gui.Logic;
@@ -34,22 +33,6 @@ public static partial class ReportHighlighter
     {
         string[] lines = text.Replace("\r\n", "\n").Split('\n');
         string[] levels = Levels(text, warnings);
-        var error = SeverityStyle.Foreground("error");
-        var rtf = new StringBuilder(@"{\rtf1\ansi\deff0{\fonttbl{\f0 Consolas;}}{\colortbl ;\red0\green0\blue0;");
-        rtf.Append($@"\red{error.R}\green{error.G}\blue{error.B};\red150\green75\blue0;\red70\green130\blue180;}}\f0\fs20 ");
-        for (int i = 0; i < lines.Length; i++)
-        {
-            rtf.Append(@"\cf").Append(levels[i] switch { "error" => 2, "warning" => 3, "info" => 4, _ => 1 }).Append(' ');
-            foreach (char ch in lines[i])
-            {
-                if (ch is '\\' or '{' or '}') rtf.Append('\\').Append(ch);
-                else if (ch > 127) rtf.Append(@"\u").Append(unchecked((short)ch)).Append('?');
-                else if (ch == '\t') rtf.Append(@"\tab ");
-                else rtf.Append(ch);
-            }
-            if (i + 1 < lines.Length) rtf.Append(@"\par ");
-        }
-        // RichEdit не включает завершающий абзац RTF в Text.
-        return rtf.Append(@"\par }").ToString();
+        return ReportRtf.Render(lines.Select((line, i) => new ReportLine([new(line, ReportTextStyle.Code, levels[i])])));
     }
 }

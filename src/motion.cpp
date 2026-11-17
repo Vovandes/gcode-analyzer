@@ -44,12 +44,12 @@ ArcResult computeArc(double u0, double v0, double u1, double v1, double h0, doub
         res.centerV = v0 + jOff.value_or(0.0);
     } else if (r) {
         if (coincident) {
-            res.error = "R arc with coincident end points";
+            res.error = "zero-length R arc with coincident end points";
             return res;
         }
         const double rad = std::fabs(*r);
         const double h2 = rad * rad - (chord / 2.0) * (chord / 2.0);
-        if (h2 < -1e-6) {
+        if (rad + 1e-9 < chord / 2.0) {
             res.error = "R is smaller than half of the chord";
             return res;
         }
@@ -69,7 +69,7 @@ ArcResult computeArc(double u0, double v0, double u1, double v1, double h0, doub
     const double radiusEnd = std::hypot(u1 - res.centerU, v1 - res.centerV);
     res.radiusMismatch = std::fabs(res.radius - radiusEnd);
     if (res.radius < 1e-9) {
-        res.error = "zero radius";
+        res.error = "zero-length arc: zero radius";
         return res;
     }
     res.startAngle = std::atan2(v0 - res.centerV, u0 - res.centerU);
@@ -80,7 +80,10 @@ ArcResult computeArc(double u0, double v0, double u1, double v1, double h0, doub
         res.sweep = kPi2;
     } else {
         res.sweep = cw ? normalizePositive(res.startAngle - endAngle) : normalizePositive(endAngle - res.startAngle);
-        if (res.sweep < 1e-12) res.sweep = kPi2;
+        if (res.sweep < 1e-12) {
+            res.error = "zero-length arc: zero sweep";
+            return res;
+        }
     }
     res.planarLength = res.radius * res.sweep;
     res.helixHeight = std::fabs(h1 - h0);
@@ -204,9 +207,11 @@ ArcResult computeSegmentArc(const Segment& seg) {
         return seg.arc.k;
     };
     const bool known3 = seg.from.known[h] && seg.to.known[h];
+    const bool useRadius = seg.arc.r && seg.arc.radiusPriority;
     return computeArc(seg.from.v[u], seg.from.v[v], seg.to.v[u], seg.to.v[v],
                       known3 ? seg.from.v[h] : 0.0, known3 ? seg.to.v[h] : 0.0,
-                      offset(pa.uOffset), offset(pa.vOffset), seg.arc.r, seg.arc.cw);
+                      useRadius ? std::nullopt : offset(pa.uOffset),
+                      useRadius ? std::nullopt : offset(pa.vOffset), seg.arc.r, seg.arc.cw);
 }
 
 SegmentMetrics measureSegment(const Segment& seg, double rapidMmPerMin) {

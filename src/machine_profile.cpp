@@ -80,6 +80,7 @@ MachineProfile parseMachineIni(std::string_view text, std::string id, const Mach
                 if (key == "name") { profile.name = value.empty() ? profile.id : value; found = true; }
                 if (key == "match") { profile.match = value; found = true; }
             } else if (section == "axes") {
+                if (key == "safe_z") { profile.safeZ = numeric(value); found = true; }
                 for (std::size_t a = 0; a < kAxisCount; ++a) {
                     const std::string prefix(1, "xyzbac"[a]);
                     if (key == prefix + "_min") { profile.axes[a].min = numeric(value); found = true; }

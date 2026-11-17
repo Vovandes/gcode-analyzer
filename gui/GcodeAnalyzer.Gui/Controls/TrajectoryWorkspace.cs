@@ -181,7 +181,7 @@ public class TrajectoryWorkspace : UserControl
     private void GoToWarning(int row)
     { if (row >= 0 && row < _warningItems.Length) SelectLine(_warningItems[row].Line); }
 
-    private void SelectLine(int line)
+    public void SelectLine(int line)
     {
         if (_scene is not null && _scene.SegmentByLine.TryGetValue(line, out int segment)) SelectSegment(segment);
         else

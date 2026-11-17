@@ -87,6 +87,44 @@ void writeCodes(std::ostream& out, const std::vector<CodeStat>& codes) {
     }
 }
 
+std::string toolOffsets(const std::set<int>& offsets) {
+    std::string result;
+    for (const int offset : offsets) {
+        if (!result.empty()) result += '/';
+        result += std::to_string(offset);
+    }
+    return result.empty() ? "—" : result;
+}
+
+void writeToolDetails(std::ostream& out, const Report& report) {
+    heading(out, "Инструменты: подробно");
+    out << "  Время в секундах, длины и габариты в мм. В длинах учтены ходы внутри циклов.\n";
+    out << "  T | ⌀ | H | D | Рабочие, с | G0, с | Циклы, с | Выдержки, с | Всего, с"
+        << " | Раб. мм | Хол. мм | F, мм/мин | S, об/мин | X мин…макс | Y мин…макс | Z мин…макс\n";
+    const auto write = [&out](const std::string& label, std::optional<double> diameter,
+                              const std::set<int>& h, const std::set<int>& d,
+                              const ToolMetrics& metrics, const BBox& b) {
+        const auto span = [](const Range& r) {
+            return r.has ? fixed(r.min, 3) + "…" + fixed(r.max, 3) : "—";
+        };
+        const auto& t = metrics.motionTime;
+        out << "  " << label << " | " << (diameter ? num(*diameter) : "—")
+            << " | " << toolOffsets(h) << " | " << toolOffsets(d)
+            << " | " << fixed(t.feedSec, 3) << " | " << fixed(t.rapidSec, 3)
+            << " | " << fixed(t.cycleSec, 3) << " | " << fixed(t.dwellSec, 3)
+            << " | " << fixed(t.totalSec(), 3) << " | " << fixed(metrics.workingMm, 3)
+            << " | " << fixed(metrics.idleMm, 3) << " | " << span(metrics.feedMmPerMin) << " | " << span(metrics.rpm);
+        for (std::size_t axis = 0; axis < 3; ++axis) out << " | " << span(b.axis[axis]);
+        out << '\n';
+    };
+    for (const auto& tool : report.tools) {
+        std::string label = "T" + std::to_string(tool.tool);
+        if (!tool.name.empty()) label += " (" + tool.name + ")";
+        write(label, tool.diameterMm, tool.hValues, tool.dValues, tool.detail, tool.box);
+    }
+    write("ИТОГО", std::nullopt, {}, {}, report.toolTotals, report.toolTotalBox);
+}
+
 } // namespace
 
 void writeTextReport(const Report& r, std::ostream& out) {
@@ -129,6 +167,7 @@ void writeTextReport(const Report& r, std::ostream& out) {
         out << "  Список операций из шапки:\n";
         for (const auto& entry : r.headerOperations) out << "      " << entry << '\n';
     }
+    writeToolDetails(out, r);
 
     heading(out, "Время обработки (оценка)");
     out << "  Следующие строки описывают прежнюю модель; сравнение с новой приведено ниже.\n";

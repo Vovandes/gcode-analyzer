@@ -18,6 +18,7 @@ private:
     double rapid_;
     TimeBreakdown total_;
     std::map<int, TimeBreakdown> perTool_;
+    std::map<int, ToolMetrics> detail_;
     std::vector<int> toolOrder_;
     std::size_t partial_ = 0;
     std::size_t noFeed_ = 0;

@@ -43,6 +43,7 @@ public sealed class AnalysisData
     public required WarningItem[] Warnings { get; init; }
     public required ToolInfo[] Tools { get; init; }
     public required TimeInfo Time { get; init; }
+    public ToolTotalInfo? ToolTotals { get; init; }
     public LimitCheck[] Limits { get; init; } = [];
     public MachineTimeInfo? MachineTime { get; init; }
 }
@@ -163,6 +164,8 @@ public sealed class ToolInfo
     public int[] HValues { get; init; } = [];
     public int[] DValues { get; init; } = [];
     public required TimeInfo Time { get; init; }
+    public double? DiameterMm { get; init; }
+    public ToolMetrics? Detail { get; init; }
     // Габариты идут в порядке X, Y, Z, B; null означает неизвестную ось.
     public RangeInfo?[] Box { get; init; } = [];
     public RangeInfo?[] WorkBox { get; init; } = [];
@@ -174,4 +177,19 @@ public sealed class ToolInfo
     public string[] Coolant { get; init; } = [];
     public string[] Wcs { get; init; } = [];
     public Dictionary<string, int> CycleHoles { get; init; } = [];
+}
+
+public sealed class ToolMetrics
+{
+    public required TimeInfo MotionTime { get; init; }
+    public double WorkingMm { get; init; }
+    public double IdleMm { get; init; }
+    public RangeInfo? FeedMmPerMin { get; init; }
+    public RangeInfo? Rpm { get; init; }
+}
+
+public sealed class ToolTotalInfo
+{
+    public required ToolMetrics Detail { get; init; }
+    public RangeInfo?[] Box { get; init; } = [];
 }

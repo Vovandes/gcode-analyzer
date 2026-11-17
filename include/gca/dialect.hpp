@@ -73,6 +73,7 @@ struct MachineProfile {
     };
     std::array<Axis, 6> axes{};  ///< XYZB retained at their original indices, then A and C
     std::optional<double> feedMax, spindleMax;
+    std::optional<double> safeZ;
     std::optional<double> toolChangeSec, bSecondsPer90, spindleStartSec, g28Time;
     double junctionAngle = 30.0;
     bool skipFirstChange = false;
@@ -115,6 +116,8 @@ public:
     [[nodiscard]] virtual std::optional<DefinitionInfo> definition(int) const { return std::nullopt; }
     [[nodiscard]] virtual bool uncertainHomeIntermediate() const { return false; }
     [[nodiscard]] virtual bool feedDwellSeconds() const { return false; }
+    [[nodiscard]] virtual bool arcRadiusPriority() const { return false; }
+    [[nodiscard]] virtual bool allowsToolUnload() const { return false; }
     [[nodiscard]] virtual std::string_view machineHeaderKey() const { return "generated for"; }
     [[nodiscard]] virtual bool requiresMinuteFeed(std::string_view) const { return false; }
 

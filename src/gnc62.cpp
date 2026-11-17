@@ -288,6 +288,7 @@ public:
     bool isLinearAxis(int index) const override { return index >= 0 && index < 3; }
     bool isKnownAddress(char letter) const override { return letter >= 'A' && letter <= 'Z'; }
     LexRules lexicalRules() const override { return {true}; }
+    bool allowsToolUnload() const override { return true; }
     bool uncertainHomeIntermediate() const override { return true; }
     bool feedDwellSeconds() const override { return true; }
     bool requiresMinuteFeed(std::string_view name) const override { return name == "prb_xyz" || name == "prb_xyz.nc"; }

@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <fstream>
 #include <iterator>
 
@@ -39,6 +40,29 @@ namespace {
 std::string lower(std::string s) {
     for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return s;
+}
+
+void summarizeTools(Report& report) {
+    auto& total = report.toolTotals;
+    for (const auto& tool : report.tools) {
+        const auto& detail = tool.detail;
+        const auto& time = detail.motionTime;
+        total.motionTime.rapidSec += time.rapidSec;
+        total.motionTime.feedSec += time.feedSec;
+        total.motionTime.cycleSec += time.cycleSec;
+        total.motionTime.dwellSec += time.dwellSec;
+        total.motionTime.rapidMm += time.rapidMm;
+        total.motionTime.feedMm += time.feedMm;
+        total.motionTime.cycleMm += time.cycleMm;
+        total.motionTime.rapidMoves += time.rapidMoves;
+        total.motionTime.feedMoves += time.feedMoves;
+        total.motionTime.cycleHoles += time.cycleHoles;
+        total.workingMm += detail.workingMm;
+        total.idleMm += detail.idleMm;
+        total.feedMmPerMin.merge(detail.feedMmPerMin);
+        total.rpm.merge(detail.rpm);
+        for (std::size_t axis = 0; axis < 3; ++axis) report.toolTotalBox.axis[axis].merge(tool.box.axis[axis]);
+    }
 }
 
 /// Text after "Generated for" in a header comment ("=== Generated for Sky Master VL1100A ===").
@@ -77,6 +101,9 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
         return analyzeProgram(reparsed, fileName, selected);
     }
     if (!(options.rapidFeedMmPerMin > 0.0)) throw OptionError("rapid feed must be positive");
+    if (!std::isfinite(options.arcRadiusTolerance) || options.arcRadiusTolerance < 0)
+        throw OptionError("arc radius tolerance must be finite and non-negative");
+    if (options.safeZ && !std::isfinite(*options.safeZ)) throw OptionError("safe Z must be finite");
 
     Report report;
     report.file.fileName = fileName;
@@ -148,7 +175,7 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
     analyzers.push_back(std::make_unique<WcsAnalyzer>());
     analyzers.push_back(std::make_unique<FeedsSpeedsAnalyzer>());
     analyzers.push_back(std::make_unique<CyclesAnalyzer>());
-    analyzers.push_back(std::make_unique<WarningsAnalyzer>(program));
+    analyzers.push_back(std::make_unique<WarningsAnalyzer>(program, options.arcRadiusTolerance, options.safeZ));
     analyzers.push_back(std::make_unique<FormatAnalyzer>());
     analyzers.push_back(std::make_unique<CodeStatsAnalyzer>(knowledge, report.file.dialectId));
     if (machine) analyzers.push_back(std::make_unique<LimitsAnalyzer>(program, *machine));
@@ -168,6 +195,7 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
         }
     }
     for (auto& a : analyzers) a->finish(report);
+    summarizeTools(report);
     return report;
 }
 

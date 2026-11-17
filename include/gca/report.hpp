@@ -23,6 +23,9 @@ struct Range {
         if (v < min) min = v;
         if (v > max) max = v;
     }
+    void merge(const Range& other) {
+        if (other.has) { add(other.min); add(other.max); }
+    }
 };
 
 struct BBox {
@@ -56,6 +59,12 @@ struct ToolUse {
     int preselectedBefore = 0;      ///< last preselected T before this change (0 = none)
 };
 
+struct ToolMetrics {
+    TimeBreakdown motionTime;
+    double workingMm = 0, idleMm = 0;
+    Range feedMmPerMin, rpm;
+};
+
 struct ToolReport {
     int tool = 0;
     std::string name;              ///< quoted controller tool name; numeric key remains stable
@@ -75,6 +84,8 @@ struct ToolReport {
     std::set<std::string> coolant;
     std::map<std::string, std::size_t> cycleHoles;
     std::set<std::string> wcs;
+    std::optional<double> diameterMm;
+    ToolMetrics detail;
 };
 
 struct CodeStat {
@@ -155,6 +166,8 @@ struct Report {
     std::vector<ToolUse> toolSequence;
     std::vector<int> preselectSequence;
     std::vector<ToolReport> tools;          ///< order of first use
+    ToolMetrics toolTotals;
+    BBox toolTotalBox;
     std::size_t optionalStops = 0;          ///< M1
     std::size_t programStops = 0;           ///< M0
     std::size_t homeReturns = 0;            ///< G28/G30 blocks
