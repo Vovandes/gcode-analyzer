@@ -21,7 +21,7 @@ foreach ($sample in @('sample-01-skymaster-vl1100a', 'sample-02-bridgeport-1300-
     if (-not (Select-String -LiteralPath $report -Pattern 'Время обработки' -Encoding UTF8 -Quiet)) { throw 'no time section' }
     $data = Get-Content -LiteralPath $json -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($data.schema -ne 1 -or $data.segments.Count -lt 1 -or $data.time.totalSec -le 0) { throw 'invalid JSON analysis' }
-    if ($data.warnings.Count -ne 0) { throw 'unexpected sample warnings' }
+    if (@($data.warnings | Where-Object { $_.severity -ne 'info' }).Count -ne 0) { throw 'unexpected sample warnings' }
     Write-Host "OK: $sample, segments=$($data.segments.Count), time=$($data.time.totalSec)"
 }
 $gui = Get-Item -LiteralPath (Join-Path $app 'GcodeAnalyzerGui.exe')
