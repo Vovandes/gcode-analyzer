@@ -35,7 +35,7 @@ public sealed class TrajectoryRenderer : IDisposable
         _bySegment = edges.GroupBy(e => e.SegmentIndex).ToDictionary(g => g.Key, g => g.ToArray());
     }
 
-    public void Draw(Graphics graphics, ViewTransform transform, ISet<int> hidden)
+    public void Draw(Graphics graphics, ViewTransform transform, ISet<int> hidden, float pixelScale = 1)
     {
         var saved = graphics.Save();
         graphics.SmoothingMode = SmoothingMode.None;
@@ -46,10 +46,10 @@ public sealed class TrajectoryRenderer : IDisposable
         {
             if (hidden.Contains(item.Tool)) continue;
             using var pen = new Pen(item.Previous ? PreviousColor : ToolPalette.ForTool(item.Tool),
-                (float)((item.Previous ? 2.8 : 1.3) / transform.Scale));
+                (float)((item.Previous ? 2.8 : 1.3) * pixelScale / transform.Scale));
             if (item.Violation && !item.Previous)
             {
-                using var outline = new Pen(SeverityStyle.Foreground("error"), (float)(4.5 / transform.Scale));
+                using var outline = new Pen(SeverityStyle.Foreground("error"), (float)(4.5 * pixelScale / transform.Scale));
                 graphics.DrawPath(outline, item.Path);
             }
             if (item.Rapid) pen.DashStyle = DashStyle.Dash;
@@ -62,8 +62,9 @@ public sealed class TrajectoryRenderer : IDisposable
             Point2 p = transform.ToScreen(e.A);
             bool previous = e.SegmentIndex < _previousSegmentCount;
             var color = previous ? PreviousColor : e.LimitViolation ? SeverityStyle.Foreground("error") : ToolPalette.ForTool(e.Tool);
-            using var pen = new Pen(color, previous || e.LimitViolation ? 3 : 1.3f);
-            graphics.DrawEllipse(pen, (float)p.X - 3, (float)p.Y - 3, 6, 6);
+            float radius = 3 * pixelScale;
+            using var pen = new Pen(color, (previous || e.LimitViolation ? 3 : 1.3f) * pixelScale);
+            graphics.DrawEllipse(pen, (float)p.X - radius, (float)p.Y - radius, radius * 2, radius * 2);
         }
     }
 

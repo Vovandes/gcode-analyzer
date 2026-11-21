@@ -10,6 +10,11 @@ $folders = @(Get-ChildItem -LiteralPath $Destination -Directory)
 if ($folders.Count -ne 1) { throw 'В архиве должна быть одна папка' }
 $app = $folders[0].FullName
 $cli = Join-Path $app 'gcode-analyzer.exe'
+foreach ($profile in @('kede-template.ini', 'kede-uni800ut.ini')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $app "machines\$profile") -PathType Leaf)) { throw "missing profile $profile" }
+}
+$readme = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $app 'README.txt')
+if (-not $readme.Contains('PDFsharp-MigraDoc-GDI 6.2.4 (MIT)')) { throw 'missing PDF library notice' }
 & $cli --version
 if ($LASTEXITCODE -ne 0) { throw '--version failed' }
 foreach ($sample in @('sample-01-skymaster-vl1100a', 'sample-02-bridgeport-1300-480')) {
@@ -60,7 +65,8 @@ try {
         if ($offset -lt 0 -or $size -le 0 -or $offset + $stored -gt $headerOffset) { throw "invalid bundle entry $entryName" }
         $entries[$entryName] = $true
     }
-    foreach ($required in @('GcodeAnalyzerGui.dll', 'System.Private.CoreLib.dll', 'System.Windows.Forms.dll')) {
+    foreach ($required in @('GcodeAnalyzerGui.dll', 'System.Private.CoreLib.dll', 'System.Windows.Forms.dll',
+        'PdfSharp-gdi.dll', 'MigraDoc.DocumentObjectModel.dll', 'MigraDoc.Rendering-gdi.dll')) {
         if (-not $entries.ContainsKey($required)) { throw "missing embedded assembly $required" }
     }
     if ($configOffset -le 0 -or $configSize -le 0 -or $configOffset + $configSize -gt $headerOffset) { throw 'invalid runtimeconfig location' }

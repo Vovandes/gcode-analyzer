@@ -29,6 +29,7 @@
 - выбор профиля станка из списка (по умолчанию — автоопределение);
 - «Открыть профиль…» выбирает INI-файл; вкладка «Пределы станка» показывает проверки, нарушения выделены красным в таблице, программе и обводке траектории;
 - «Сравнить…» открывает старую и новую УП. Во вкладке «Сравнение» доступны сводка, наложение 2D и отчёт. Щелчок по расхождению выделяет соответствующие строки обеих программ;
+- «Сохранить PDF…» сохраняет отчёт А4 для текущего анализа или сравнения. В PDF входят цветные таблицы, виды траектории XY и XZ и шпаргалка. Из вкладки «Сравнение» выгружаются наложение траекторий и отчёт о различиях;
 - `gcode-analyzer.exe` должен лежать рядом с окном.
 
 ## Консоль
@@ -63,6 +64,8 @@ gcode-analyzer.exe --help | --version | --list-options
 
 C++: CMake ≥ 3.21 и компилятор C++20 (GCC 11+, Clang 14+, MSVC 2022+). Окно: .NET 10 SDK (только Windows). `global.json` выбирает последний установленный стабильный SDK 10.0, начиная с 10.0.100.
 
+PDF формируется в окне пакетом `PDFsharp-MigraDoc-GDI` строго версии [6.2.4 (MIT)](https://www.nuget.org/packages/PDFsharp-MigraDoc-GDI/6.2.4). Экспорт встраивает используемые глифы из Arial или Segoe UI.
+
 ```bash
 cmake --preset debug && cmake --build --preset debug && ctest --preset debug              # Linux
 cmake --preset msvc  && cmake --build --preset msvc-debug && ctest --preset msvc-debug    # Windows
@@ -77,7 +80,7 @@ powershell -ExecutionPolicy Bypass -File scripts/package.ps1                    
 1. Поднять номер в `VERSION` и дописать `CHANGELOG.md`.
 2. `git tag vX.Y.Z && git push --tags` — GitHub Actions соберёт zip, проверит его и создаст релиз.
 
-Автосборка (`.github/workflows/ci.yml`): Linux GCC и Clang, Windows MSVC, окно .NET с тестами, упаковка zip со smoke-тестом в папке с русским именем. Артефакт zip сохраняется только для `main` и тегов, 7 дней.
+Автосборка (`.github/workflows/ci.yml`): push в `main` и запросы на слияние проверяются на Linux с GCC и Clang. Теги `v*` и ручной запуск дополнительно включают MSVC, тесты WinForms и упаковку обоих zip со smoke-тестами в папке с русским именем. Артефакт zip хранится 7 дней для тегов и ручного запуска на `main`.
 
 ## Структура
 - `include/gca/`, `src/` — библиотека `gca_core` и CLI

@@ -1,3 +1,6 @@
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using GcodeAnalyzer.Gui.Logic;
 using GcodeAnalyzer.Gui.Controls;
 
@@ -27,6 +30,7 @@ public class MainForm : Form
     private readonly Button _exeButton = new() { Text = "…", AutoSize = true };
     private readonly Button _runButton = new() { Text = "Анализировать", AutoSize = true };
     private readonly Button _saveAsButton = new() { Text = "Сохранить как txt", AutoSize = true, Enabled = false };
+    private readonly Button _savePdfButton = new() { Text = "Сохранить PDF…", AutoSize = true, Enabled = false };
     private readonly Button _helpButton = new() { Text = "Справка по аргументам", AutoSize = true };
     private readonly Label _machineLabel = new() { Text = "Станок: —", AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly ListBox _sectionList = new() { Dock = DockStyle.Fill };
@@ -53,8 +57,14 @@ public class MainForm : Form
     private string? _inputFile;
     private List<ReportSection> _sections = new();
     private ReportPresentation? _reportPresentation;
+    private AnalysisPdf? _analysisPdf;
+    private ComparisonPdf? _comparisonPdf;
     private List<MachineInfo> _machines = new();
     private bool _busy;
+
+    private sealed record AnalysisPdf(AnalysisData Data, string Report, TrajectoryScene Scene);
+    private sealed record ComparisonPdf(string BeforePath, FileInfo AfterFile, string Report, TrajectoryScene Scene,
+        Func<Task<(RunResult Run, string Report)>> AnalyzeAfter);
 
     public MainForm(AppSettings? settings = null)
     {
@@ -72,6 +82,7 @@ public class MainForm : Form
         _compareButton.Click += async (_, _) => await CompareAsync();
         _runButton.Click += async (_, _) => await RunAnalysisAsync();
         _saveAsButton.Click += async (_, _) => await SaveAsTxtAsync();
+        _savePdfButton.Click += async (_, _) => await SavePdfAsync();
         _helpButton.Click += async (_, _) => await ShowHelpAsync();
         _exeButton.Click += (_, _) => ChooseExe();
         _profileButton.Click += (_, _) => ChooseProfile();
@@ -128,7 +139,7 @@ public class MainForm : Form
         {
             _showRadio, _saveRadio, _bomCheck,
             new Label { Text = "Профиль станка:", AutoSize = true, Margin = new Padding(20, 6, 0, 0) }, _machineCombo, _profileButton,
-            _runButton, _saveAsButton, _helpButton,
+            _runButton, _saveAsButton, _savePdfButton, _helpButton,
         });
 
         // Строки с растягиваемым полем ввода: таблица из 3 колонок (подпись, поле, кнопка)
@@ -155,7 +166,7 @@ public class MainForm : Form
         _toolsTab.Controls.Add(_toolsView);
         AddAnalysisTabs();
         _tabs.SelectedTab = _tabs.TabPages[_settings.ActiveTab] ?? _trajectoryTab;
-        _tabs.SelectedIndexChanged += (_, _) => UpdateSaveAsButton();
+        _tabs.SelectedIndexChanged += (_, _) => UpdateSaveButtons();
         var tabsMenu = new ContextMenuStrip();
         tabsMenu.Items.Add("Поменять вкладки местами", null, (_, _) =>
         {
@@ -283,7 +294,9 @@ public class MainForm : Form
         _limitsView.ShowChecks([]);
         _toolsView.ShowTools(null);
         _reportPresentation = null;
+        _analysisPdf = null;
         _reportBox.Clear(); _sectionList.Items.Clear(); _sections.Clear();
+        UpdateSaveButtons();
         // В режиме «Показать» анализ стартует сразу; в режиме «Сохранить» ждём кнопку
         if (_showRadio.Checked) _ = RunAnalysisAsync();
     }
@@ -304,8 +317,12 @@ public class MainForm : Form
         _status.Text = "Сравнение…";
         try
         {
-            var (run, report, comparison) = await runner.CompareAsync(
-                before, after, SelectedMachineId, _extraBox.Text, SelectedMachineFile);
+            string machineId = SelectedMachineId;
+            string extra = _extraBox.Text;
+            string? machineFile = SelectedMachineFile;
+            var afterFile = new FileInfo(after);
+            _ = afterFile.Length;
+            var (run, report, comparison) = await runner.CompareAsync(before, after, machineId, extra, machineFile);
             if (IsDisposed) return;
             ShowRunResult(run, "Сравнение готово");
             if (comparison is null) return;
@@ -327,6 +344,8 @@ public class MainForm : Form
                 _tabs.TabPages.Add(_comparisonTab);
             }
             _comparisonWorkspace.SetComparison(comparison, report, prepared.Overlay, prepared.Before, prepared.After);
+            _comparisonPdf = new(before, afterFile, report, prepared.Overlay.Scene, () =>
+                runner.AnalyzeToMemoryAsync(after, machineId, extra, machineFile, fromComparison: true));
             _tabs.SelectedTab = _comparisonTab;
             _settings.LastFolder = Path.GetDirectoryName(after) ?? "";
         }
@@ -408,6 +427,79 @@ public class MainForm : Form
         return dialog.ShowDialog(this) == DialogResult.OK ? dialog.FileName : null;
     }
 
+    private async Task SavePdfAsync()
+    {
+        bool comparing = _tabs.SelectedTab == _comparisonTab;
+        var analysis = comparing ? null : _analysisPdf;
+        var comparison = comparing ? _comparisonPdf : null;
+        if (_busy || (analysis is null && comparison is null)) return;
+        string input = comparison?.AfterFile.FullName ?? _inputFile!;
+        using var dialog = new SaveFileDialog
+        {
+            Filter = "Отчёт PDF (*.pdf)|*.pdf",
+            DefaultExt = "pdf",
+            FileName = Path.GetFileNameWithoutExtension(input) + (comparing ? "-сравнение.pdf" : "-отчёт.pdf"),
+            InitialDirectory = Path.GetDirectoryName(input),
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        string path = dialog.FileName;
+
+        SetBusy(true);
+        _status.Text = "Сохранение PDF…";
+        try
+        {
+            if (SamePath(input, path) || (comparison is not null && SamePath(comparison.BeforePath, path)))
+                throw new IOException("Выберите имя PDF, отличное от имени исходной УП.");
+
+            PdfComparison? appendix = null;
+            if (comparison is not null)
+            {
+                CheckComparisonFile(comparison.AfterFile);
+                var (run, report) = await comparison.AnalyzeAfter();
+                CheckComparisonFile(comparison.AfterFile);
+                if (run.Analysis is null) throw new IOException(run.StdErr.Trim());
+                analysis = new(run.Analysis, report, comparison.Scene);
+                appendix = new(Path.GetFileName(comparison.BeforePath), comparison.Report);
+            }
+
+            var source = analysis!;
+            await Task.Run(() => new PdfReportWriter().Save(path, source.Data, source.Report, source.Scene, DateTimeOffset.Now, appendix));
+            if (IsDisposed) return;
+            _status.Text = $"PDF сохранён: {path}";
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException
+            or ExternalException or NotSupportedException)
+        {
+            if (!IsDisposed) ShowError($"Не удалось сохранить PDF: {e.Message}");
+            return;
+        }
+        finally
+        {
+            if (!IsDisposed) SetBusy(false);
+        }
+
+        if (MessageBox.Show(this, "Открыть сохранённый PDF?", "Отчёт PDF", MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question) != DialogResult.Yes) return;
+        try
+        {
+            using var viewer = Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        }
+        catch (Exception e) when (e is Win32Exception or InvalidOperationException)
+        {
+            ShowError($"PDF сохранён в {path}. Не удалось открыть файл: {e.Message}");
+        }
+    }
+
+    private static bool SamePath(string left, string right) =>
+        string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
+
+    private static void CheckComparisonFile(FileInfo snapshot)
+    {
+        var current = new FileInfo(snapshot.FullName);
+        if (!current.Exists || current.Length != snapshot.Length || current.LastWriteTimeUtc != snapshot.LastWriteTimeUtc)
+            throw new IOException("Новая УП изменилась после сравнения. Сравните файлы заново и повторите сохранение.");
+    }
+
     private async Task ShowHelpAsync()
     {
         AnalyzerRunner? runner = CreateRunner(showMessage: true);
@@ -450,6 +542,7 @@ public class MainForm : Form
         if (_tabs.SelectedTab == _comparisonTab)
             _tabs.SelectedTab = _settings.ReportFirst ? _reportTab : _trajectoryTab;
         _workspace.SetAnalysis(prepared.Scene, prepared.Lines, analysis.Warnings);
+        _analysisPdf = new(analysis, report, prepared.Scene);
         _limitsView.ShowChecks(analysis.Limits);
         _toolsView.ShowTools(analysis);
         ShowReport(prepared.Presentation, prepared.Rtf, ReportParser.FindMachine(report));
@@ -464,7 +557,7 @@ public class MainForm : Form
         _sectionList.Items.Clear();
         foreach (ReportSection s in _sections) _sectionList.Items.Add(s.Title);
         _machineLabel.Text = "Станок: " + (machine.Length > 0 ? machine : "—");
-        UpdateSaveAsButton();
+        UpdateSaveButtons();
     }
 
     // Щелчок по разделу: ставим курсор на заголовок и прокручиваем к нему
@@ -490,13 +583,17 @@ public class MainForm : Form
         _busy = busy;
         foreach (Control c in new Control[] { _openButton, _compareButton, _runButton, _helpButton, _exeButton, _profileButton, _machineCombo })
             c.Enabled = !busy;
-        UpdateSaveAsButton();
+        UpdateSaveButtons();
         if (busy) { _status.Text = "Анализ…"; _errorBox.Visible = false; }
         UseWaitCursor = busy;
     }
 
-    private void UpdateSaveAsButton() =>
-        _saveAsButton.Enabled = !_busy && _tabs.SelectedTab != _comparisonTab && _reportBox.TextLength > 0;
+    private void UpdateSaveButtons()
+    {
+        bool comparing = _tabs.SelectedTab == _comparisonTab;
+        _saveAsButton.Enabled = !_busy && !comparing && _reportBox.TextLength > 0;
+        _savePdfButton.Enabled = !_busy && (comparing ? _comparisonPdf is not null : _analysisPdf is not null);
+    }
 
     private void SaveSettings()
     {

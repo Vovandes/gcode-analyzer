@@ -14,4 +14,8 @@
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="PDFsharp-MigraDoc-GDI" Version="[6.2.4]" />
+  </ItemGroup>
+
 </Project>

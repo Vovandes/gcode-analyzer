@@ -56,13 +56,14 @@ public class AnalyzerRunner
     /// Так кодировка консоли не влияет на результат. Временный файл удаляется.
     /// </summary>
     public async Task<(RunResult Run, string Report)> AnalyzeToMemoryAsync(
-        string inputFile, string? machineId, string? extraArguments, string? machineFile = null)
+        string inputFile, string? machineId, string? extraArguments, string? machineFile = null, bool fromComparison = false)
     {
         string tempFile = Path.Combine(Path.GetTempPath(), $"gca-{Guid.NewGuid():N}.txt");
         string jsonFile = Path.Combine(Path.GetTempPath(), $"gca-{Guid.NewGuid():N}.json");
         try
         {
-            var args = AnalyzerArguments.Build(inputFile, tempFile, machineId, bom: false, extraArguments, jsonFile, machineFile);
+            var args = AnalyzerArguments.Build(inputFile, tempFile, machineId, bom: false, extraArguments, jsonFile, machineFile,
+                fromComparison);
             RunResult run = await ReadAnalysisAsync(await RunAsync(args), jsonFile);
             string report = run.ExitCode == 0 && File.Exists(tempFile)
                 ? await File.ReadAllTextAsync(tempFile, Encoding.UTF8)
