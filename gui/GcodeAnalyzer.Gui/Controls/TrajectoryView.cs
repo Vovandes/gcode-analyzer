@@ -10,7 +10,7 @@ public class TrajectoryView : UserControl
     private Bitmap? _cache;
     private bool _dirty = true, _dragging;
     private Point _down, _last;
-    private int _selected = -1;
+    private int _selected = -1, _alsoSelected = -1;
     private readonly HashSet<int> _hidden = [];
     public ViewTransform Transform { get; } = new();
     public event Action<int>? SegmentSelected;
@@ -26,16 +26,23 @@ public class TrajectoryView : UserControl
 
     public void SetScene(TrajectoryScene? scene, ViewPlane plane)
     {
-        _scene = scene; _plane = plane; _selected = -1;
+        _scene = scene; _plane = plane; _selected = _alsoSelected = -1;
         _renderer?.Dispose();
-        _renderer = scene is null ? null : new TrajectoryRenderer(scene.Views[(int)plane]);
+        _renderer = scene is null ? null : new TrajectoryRenderer(scene.Views[(int)plane], scene.PreviousSegmentCount);
         FitAll();
     }
 
     public void SetHiddenTools(IEnumerable<int> tools)
     { _hidden.Clear(); _hidden.UnionWith(tools); Redraw(); }
 
-    public void SelectSegment(int index) { _selected = index; Invalidate(); }
+    public void SelectSegment(int index) => SelectSegments(index, -1);
+
+    public void SelectSegments(int first, int second)
+    {
+        _selected = first;
+        _alsoSelected = second;
+        Invalidate();
+    }
 
     public void EnsureSelectedVisible(int index)
     {
@@ -78,6 +85,7 @@ public class TrajectoryView : UserControl
         }
         e.Graphics.DrawImageUnscaled(_cache, 0, 0);
         _renderer?.DrawSelected(e.Graphics, Transform, _selected, _hidden);
+        _renderer?.DrawSelected(e.Graphics, Transform, _alsoSelected, _hidden);
     }
 
     private void DrawScale(Graphics graphics)
@@ -126,6 +134,7 @@ public class TrajectoryView : UserControl
         {
             int index = _scene.HitTests[(int)_plane].Find(new(e.X, e.Y), Transform, hiddenTools: _hidden);
             _selected = index;
+            _alsoSelected = -1;
             if (index >= 0) SegmentSelected?.Invoke(index);
             Invalidate();
         }

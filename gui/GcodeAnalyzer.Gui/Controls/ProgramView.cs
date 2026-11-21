@@ -69,6 +69,12 @@ public class ProgramView : UserControl
         if (notify) LineSelected?.Invoke(_selected + 1);
     }
 
+    public void ClearSelection()
+    {
+        _selected = _anchor = -1;
+        Invalidate();
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);

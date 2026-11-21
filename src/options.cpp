@@ -1,4 +1,6 @@
 #include "gca/options.hpp"
+#include "gca/comparison.hpp"
+#include "gca/text_util.hpp"
 
 #include <algorithm>
 
@@ -8,6 +10,8 @@ const std::vector<OptionInfo>& cliOptions() {
     static const std::vector<OptionInfo> options = {
         {"--out", "-o", "<файл>", "", "записать отчёт в текстовый файл UTF-8 вместо вывода в консоль"},
         {"--json", "", "<файл>", "", "записать машиночитаемый JSON (схема 1, UTF-8 без BOM)"},
+        {"--compare", "", "<старая.nc> <новая.nc>", "", "сравнить две управляющие программы"},
+        {"--tolerance", "", "<мм>", trimmedNumber(kDefaultComparisonTolerance), "допуск XYZ для сравнения конечных точек с --compare"},
         {"--bom", "", "", "", "добавить BOM (EF BB BF) в начало файла --out (для старого Блокнота и Excel)"},
         {"--dialect", "", "<id|auto>", "auto", "профиль стойки: auto (по шапке, иначе fanuc-mill), fanuc-mill, gnc62"},
         {"--machine", "", "<id|auto>", "auto", "профиль станка; auto - определить по комментарию «Generated for ...»"},
@@ -27,6 +31,7 @@ const std::vector<OptionInfo>& cliOptions() {
 std::string helpText() {
     std::string s =
         "Использование: gcode-analyzer <программа.nc> [опции]\n"
+        "               gcode-analyzer --compare <старая.nc> <новая.nc> [опции]\n"
         "               gcode-analyzer --help | --version | --list-options | --list-machines\n"
         "\n"
         "Опции:\n";

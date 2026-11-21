@@ -6,7 +6,7 @@ namespace GcodeAnalyzer.Gui.Logic;
 /// <summary>Читает данные ядра; геометрия и анализ в окне не пересчитываются.</summary>
 public static class AnalysisJson
 {
-    private static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    internal static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
     public static AnalysisData Parse(string json)
     {
@@ -15,7 +15,16 @@ public static class AnalysisJson
         if (data.Schema != 1) throw new JsonException($"Не поддерживается схема JSON {data.Schema}.");
         if (data.File is null || data.Segments is null || data.Warnings is null || data.Tools is null || data.Time is null)
             throw new JsonException("В JSON отсутствуют обязательные данные анализа.");
-        foreach (var segment in data.Segments)
+        ValidateSegments(data.Segments);
+        ValidateWarnings(data.Warnings);
+        if (data.Limits is null || data.Limits.Any(c => c is null || c.Line < 1 || c.Status is not ("ok" or "error" or "info")))
+            throw new JsonException("Некорректная проверка пределов.");
+        return data;
+    }
+
+    internal static void ValidateSegments(Segment[] segments)
+    {
+        foreach (var segment in segments)
         {
             if (segment is null || segment.Line < 1 || segment.Start?.Length != 3 || segment.End?.Length != 3 ||
                 segment.Plane is not ("G17" or "G18" or "G19") ||
@@ -23,15 +32,17 @@ public static class AnalysisJson
                 throw new JsonException("Некорректный сегмент траектории.");
             if (segment.Kind == "arc" && (segment.Center?.Length != 3 || segment.Cw is null))
                 throw new JsonException("В дуге отсутствуют центр или направление.");
+            if ((segment.WorkStart is not null && segment.WorkStart.Length != 3) ||
+                (segment.WorkEnd is not null && segment.WorkEnd.Length != 3))
+                throw new JsonException("Некорректные координаты G53.");
         }
-        foreach (var warning in data.Warnings)
+    }
+
+    internal static void ValidateWarnings(WarningItem[] warnings)
+    {
+        foreach (var warning in warnings)
             if (warning is null || warning.Severity is not ("error" or "warning" or "info"))
                 throw new JsonException("Неизвестный уровень предупреждения.");
-        if (data.Limits is null || data.Limits.Any(c => c is null || c.Line < 1 || c.Status is not ("ok" or "error" or "info")))
-            throw new JsonException("Некорректная проверка пределов.");
-        if (data.Segments.Any(s => (s.WorkStart is not null && s.WorkStart.Length != 3) ||
-            (s.WorkEnd is not null && s.WorkEnd.Length != 3))) throw new JsonException("Некорректные координаты G53.");
-        return data;
     }
 }
 

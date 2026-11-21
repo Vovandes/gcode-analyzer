@@ -26,6 +26,7 @@
     <Content Include="..\..\samples\*.nc" Link="samples\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\tests\data\machine-stage11.*" Link="data\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\tests\data\gnc62-synthetic.nc" Link="data\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\tests\data\stage13-*.nc" Link="data\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

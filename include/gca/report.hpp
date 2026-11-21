@@ -190,6 +190,7 @@ struct Report {
     std::vector<std::string> diagnostics;   ///< lexer diagnostics
 
     std::vector<CheatSection> cheatSheet;
+    std::vector<CheatSection> comparisonFormat; ///< selected cheat-sheet facts, without source-line headings
 
     /// Get or create the per-tool entry (creation order = first-use order).
     ToolReport& tool(int number);

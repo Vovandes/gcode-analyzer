@@ -114,9 +114,15 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
     report.file.lfLines = program.lfLines;
     report.file.lexerDiagnostics = program.diagnostics.size();
     report.file.rapidFeed = options.rapidFeedMmPerMin;
+    std::size_t motionCandidates = 0;
     for (const auto& b : program.blocks) {
         if (!b.isBlank()) ++report.file.blocks;
+        if (std::any_of(b.words.begin(), b.words.end(), [](const Word& w) {
+            return w.hasValue && std::string_view("GXYZBACIJKR").find(w.letter) != std::string_view::npos;
+        })) ++motionCandidates;
     }
+    // Keep both analyzed trajectories without temporarily copying a growing segment array.
+    report.segments.reserve(motionCandidates);
     for (const auto& d : program.diagnostics) {
         report.diagnostics.push_back("строка " + std::to_string(d.lineNo) + ": " + d.message);
     }
@@ -176,7 +182,7 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
     analyzers.push_back(std::make_unique<FeedsSpeedsAnalyzer>());
     analyzers.push_back(std::make_unique<CyclesAnalyzer>());
     analyzers.push_back(std::make_unique<WarningsAnalyzer>(program, options.arcRadiusTolerance, options.safeZ));
-    analyzers.push_back(std::make_unique<FormatAnalyzer>());
+    analyzers.push_back(std::make_unique<FormatAnalyzer>(program.blocks.size()));
     analyzers.push_back(std::make_unique<CodeStatsAnalyzer>(knowledge, report.file.dialectId));
     if (machine) analyzers.push_back(std::make_unique<LimitsAnalyzer>(program, *machine));
     analyzers.push_back(std::make_unique<MachineTimeAnalyzer>(machine, options.rapidFeedMmPerMin));
@@ -185,14 +191,15 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
     for (std::size_t i = 0; i < program.blocks.size(); ++i) {
         const Block& block = program.blocks[i];
         const ModalState before = machineState.state();
-        const BlockEffect effect = machineState.apply(block);
-        report.segments.insert(report.segments.end(), effect.segments.begin(), effect.segments.end());
+        BlockEffect effect = machineState.apply(block);
         const BlockContext ctx{block, i, before, machineState.state(), effect, profile};
         for (auto& a : analyzers) {
             a->onBlock(ctx);
             for (const auto& s : effect.segments) a->onSegment(s, ctx);
             for (const auto& e : effect.toolEvents) a->onToolChange(e, ctx);
         }
+        report.segments.insert(report.segments.end(), std::make_move_iterator(effect.segments.begin()),
+                               std::make_move_iterator(effect.segments.end()));
     }
     for (auto& a : analyzers) a->finish(report);
     summarizeTools(report);
@@ -201,8 +208,11 @@ Report analyzeProgram(const Program& program, const std::string& fileName, const
 
 Report analyzeText(std::string_view text, const std::string& fileName, const AnalysisOptions& options) {
     const IDialect* dialect = options.dialect == "auto" ? detectDialect(text) : findDialect(options.dialect);
+    if (!dialect && options.dialect == "auto") dialect = findDialect("fanuc-mill");
     const Program program = parseProgram(text, dialect ? dialect->lexicalRules() : LexRules{});
-    return analyzeProgram(program, fileName, options);
+    auto selected = options;
+    if (dialect) selected.dialect = dialect->id();
+    return analyzeProgram(program, fileName, selected);
 }
 
 Report analyzeFileReport(const std::filesystem::path& input, const AnalysisOptions& options) {

@@ -49,6 +49,7 @@ add_library(gca_core STATIC
     src/modal_state.cpp
     src/motion.cpp
     src/report.cpp
+    src/comparison.cpp
     src/json_report.cpp
     src/options.cpp
     src/analyzers/code_stats.cpp

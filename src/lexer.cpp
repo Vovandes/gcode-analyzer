@@ -77,11 +77,15 @@ std::optional<double> parseNumber(std::string_view s) {
     return neg ? -v : v;
 }
 
-Block lexLine(std::string_view line, std::size_t lineNo, std::vector<Diagnostic>* diagnostics, LexRules rules) {
-    Block b;
+namespace {
+
+void lexInto(Block& b, std::string_view line, std::size_t lineNo, std::vector<Diagnostic>* diagnostics, LexRules rules) {
     b.lineNo = lineNo;
-    b.raw = std::string(line);
+    b.raw = line;
     if (!line.empty() && (line.back() == ' ' || line.back() == '\t')) b.trailingWhitespace = true;
+    // On ordinary Fanuc lines, each letter starts one word.
+    if (!rules.extended && line.find_first_of("(;") == std::string_view::npos)
+        b.words.reserve(static_cast<std::size_t>(std::count_if(line.begin(), line.end(), isAlpha)));
 
     const std::size_t n = line.size();
     std::size_t i = 0;
@@ -211,7 +215,7 @@ Block lexLine(std::string_view line, std::size_t lineNo, std::vector<Diagnostic>
                     i = at == std::string_view::npos ? n : at; continue;
                 }
             }
-            Word w;
+            Word& w = b.words.emplace_back();
             w.letter = toUpper(c);
             w.lowercase = (c != w.letter);
             w.pos = i;
@@ -222,16 +226,24 @@ Block lexLine(std::string_view line, std::size_t lineNo, std::vector<Diagnostic>
             }
             if (rules.extended && w.letter == 'T' && valueStart < n && line[valueStart] == '"') {
                 const auto end = line.find('"', valueStart + 1);
-                if (end == std::string_view::npos) { report(diagnostics, lineNo, "unterminated tool name"); break; }
+                if (end == std::string_view::npos) {
+                    report(diagnostics, lineNo, "unterminated tool name");
+                    b.words.pop_back();
+                    break;
+                }
                 w.stringValue = std::string(line.substr(valueStart + 1, end - valueStart - 1));
                 if (w.stringValue.empty()) report(diagnostics, lineNo, "empty tool name");
                 w.rawText = std::string(line.substr(i, end + 1 - i));
-                b.words.push_back(std::move(w)); i = end + 1; prevSpace = false; continue;
+                i = end + 1; prevSpace = false; continue;
             }
             if (rules.extended && w.letter == 'S' && valueStart < n && line[valueStart] == '(') {
                 const auto close = line.find(')', valueStart + 1);
                 const auto channel = close == std::string_view::npos ? std::nullopt : parseNumber(line.substr(valueStart + 1, close - valueStart - 1));
-                if (!channel || *channel < 1 || *channel > 16) { report(diagnostics, lineNo, "invalid spindle selector"); break; }
+                if (!channel || *channel < 1 || *channel > 16) {
+                    report(diagnostics, lineNo, "invalid spindle selector");
+                    b.words.pop_back();
+                    break;
+                }
                 w.channel = static_cast<int>(*channel); valueStart = close + 1;
                 while (valueStart < n && isSpace(line[valueStart])) ++valueStart;
             }
@@ -245,11 +257,11 @@ Block lexLine(std::string_view line, std::size_t lineNo, std::vector<Diagnostic>
                     ++j;
                 } while (j < n && (depth > 0 || isDigit(line[j]) || line[j] == '#' || line[j] == '.'));
                 w.rawText = std::string(line.substr(i, j - i));
-                b.words.push_back(std::move(w)); i = j; continue;
+                i = j; continue;
             }
             if (j < n && (line[j] == '+' || line[j] == '-')) ++j;
             while (j < n && (isDigit(line[j]) || line[j] == '.')) ++j;
-            w.rawText = std::string(line.substr(i, j - i));
+            w.rawText = line.substr(i, j - i);
             const auto num = parseNumber(line.substr(valueStart, j - valueStart));
             if (num) {
                 w.value = *num;
@@ -260,7 +272,6 @@ Block lexLine(std::string_view line, std::size_t lineNo, std::vector<Diagnostic>
                 report(diagnostics, lineNo, "address '" + w.rawText + "' without value");
             }
             if (w.letter == 'N' && w.hasValue && !b.n) b.n = static_cast<long>(w.value);
-            b.words.push_back(std::move(w));
             i = j;
             prevSpace = false;
             badRun = false;
@@ -273,12 +284,23 @@ Block lexLine(std::string_view line, std::size_t lineNo, std::vector<Diagnostic>
         ++i;
         prevSpace = false;
     }
-    return b;
+}
+
+} // namespace
+
+Block lexLine(std::string_view line, std::size_t lineNo, std::vector<Diagnostic>* diagnostics, LexRules rules) {
+    Block block;
+    lexInto(block, line, lineNo, diagnostics, rules);
+    return block;
 }
 
 Program parseProgram(std::string_view text, LexRules rules) {
     Program p;
     p.rules = rules;
+    if (!text.empty()) {
+        const auto lines = static_cast<std::size_t>(std::count(text.begin(), text.end(), '\n'));
+        p.blocks.reserve(lines + (text.back() != '\n'));
+    }
     std::size_t start = 0;
     std::size_t lineNo = 0;
     while (start < text.size()) {
@@ -299,7 +321,7 @@ Program parseProgram(std::string_view text, LexRules rules) {
             }
         }
         ++lineNo;
-        p.blocks.push_back(lexLine(line, lineNo, &p.diagnostics, rules));
+        lexInto(p.blocks.emplace_back(), line, lineNo, &p.diagnostics, rules);
     }
     if (rules.extended) {
         // Allocate synthetic keys above every numeric T; preserve the original name in reports.

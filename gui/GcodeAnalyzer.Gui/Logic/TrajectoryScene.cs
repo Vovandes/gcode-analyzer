@@ -7,16 +7,18 @@ public sealed class TrajectoryScene
     public ProjectedEdge[][] Views { get; }
     public HitTester[] HitTests { get; }
     public Dictionary<int, int> SegmentByLine { get; }
-    private TrajectoryScene(Segment[] segments, ProjectedEdge[][] views)
+    public int PreviousSegmentCount { get; }
+    private TrajectoryScene(Segment[] segments, ProjectedEdge[][] views, int previousSegmentCount)
     {
         Segments = segments;
         Views = views;
+        PreviousSegmentCount = previousSegmentCount;
         HitTests = views.Select(v => new HitTester(v)).ToArray();
         SegmentByLine = new();
         for (int i = 0; i < segments.Length; i++) SegmentByLine.TryAdd(segments[i].Line, i);
     }
 
-    public static TrajectoryScene Build(Segment[] segments)
+    public static TrajectoryScene Build(Segment[] segments, int previousSegmentCount = 0)
     {
         List<ProjectedEdge>[] views = [[], [], []];
         for (int index = 0; index < segments.Length; index++)
@@ -34,6 +36,6 @@ public sealed class TrajectoryScene
                     if (Projection.Project(points[j - 1], plane) is { } a && Projection.Project(points[j], plane) is { } b)
                         views[(int)plane].Add(new(a, b, index, s.Tool, s.Kind == "rapid", s.Kind == "cycle", s.LimitViolation));
         }
-        return new(segments, views.Select(v => v.ToArray()).ToArray());
+        return new(segments, views.Select(v => v.ToArray()).ToArray(), previousSegmentCount);
     }
 }

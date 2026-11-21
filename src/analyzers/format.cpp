@@ -14,6 +14,16 @@ namespace {
 
 using Lines = std::vector<std::string>;
 
+void saveFormatFacts(Report& report, const std::string& title, const Lines& lines, std::size_t first,
+                     std::optional<std::size_t> replace = std::nullopt, const std::string& replacement = {}) {
+    CheatSection section{title, {}};
+    for (std::size_t i = first; i < lines.size(); ++i) {
+        const auto& line = i == replace ? replacement : lines[i];
+        if (!line.empty()) section.lines.push_back(line);
+    }
+    report.comparisonFormat.push_back(std::move(section));
+}
+
 std::string trim(const std::string& s) {
     std::size_t a = 0;
     std::size_t b = s.size();
@@ -64,8 +74,7 @@ const char* zoneName(int z) {
 
 void FormatAnalyzer::onBlock(const BlockContext& ctx) {
     if (!profile_) profile_ = ctx.profile;
-    Rec r;
-    r.block = ctx.block;
+    Rec r{ctx.block};
     r.activeTool = ctx.after.activeTool;
     r.spindleOffBefore = ctx.before.spindle == SpindleDir::Off;
     recs_.push_back(std::move(r));
@@ -383,6 +392,8 @@ void FormatAnalyzer::buildStructure(Report& report) {
     }
 
     // --- tool change
+    const std::size_t changesStart = L.size();
+    std::optional<std::size_t> firstChangeHeading;
     L.push_back("");
     if (m6.empty()) {
         L.push_back("Смены инструмента (M6) в программе нет.");
@@ -395,6 +406,7 @@ void FormatAnalyzer::buildStructure(Report& report) {
                 last = i;
                 if (recs_[i].cut) break;
             }
+            firstChangeHeading = L.size();
             L.push_back("Первая смена инструмента и подход (строки " + count(recs_[m6[0]].block.lineNo) + ".." +
                         count(recs_[last].block.lineNo) + "), значения заменены подстановками:");
             for (const auto& line : abstractRange(m6[0], last, m6[0])) L.push_back("    " + line);
@@ -508,6 +520,9 @@ void FormatAnalyzer::buildStructure(Report& report) {
         }
     }
 
+    saveFormatFacts(report, "Шаблон смены инструмента", L, changesStart, firstChangeHeading,
+                    "Первая смена инструмента и подход, значения заменены подстановками:");
+
     // --- end
     L.push_back("");
     {
@@ -541,6 +556,9 @@ void FormatAnalyzer::buildBlockFormat(Report& report) {
     Lines& L = sec.lines;
 
     // N numbering
+    std::optional<std::size_t> toolLinkLine;
+    std::string toolLink;
+    Lines numberingSample;
     {
         std::size_t total = 0;
         std::size_t onlyN = 0;
@@ -549,9 +567,9 @@ void FormatAnalyzer::buildBlockFormat(Report& report) {
         std::size_t withOpTool = 0;
         std::map<std::string, std::size_t> before;
         std::map<std::string, std::size_t> after;
-        Lines exceptions;
+        std::string exceptions;
         std::vector<long> values;
-        std::size_t contentBlocks = 0;
+        std::size_t contentBlocks = 0, nextCut = 0;
         for (std::size_t i = 0; i < recs_.size(); ++i) {
             const Block& b = recs_[i].block;
             if (!b.words.empty()) ++contentBlocks;
@@ -563,12 +581,15 @@ void FormatAnalyzer::buildBlockFormat(Report& report) {
             before[nearestAbstract(i, -1)]++;
             after[nearestAbstract(i, +1)]++;
             // tool that works in the next operation = active tool at the next cutting block
-            for (std::size_t j = i + 1; j < recs_.size(); ++j) {
-                if (recs_[j].cut) {
-                    ++withOpTool;
-                    if (recs_[j].activeTool == *b.n) ++equalOpTool;
-                    else exceptions.push_back("N" + std::to_string(*b.n) + " (строка " + count(b.lineNo) + ", инструмент следующей операции T" + std::to_string(recs_[j].activeTool) + ")");
-                    break;
+            nextCut = std::max(nextCut, i + 1);
+            while (nextCut < recs_.size() && !recs_[nextCut].cut) ++nextCut;
+            if (nextCut < recs_.size()) {
+                ++withOpTool;
+                if (recs_[nextCut].activeTool == *b.n) ++equalOpTool;
+                else {
+                    if (!exceptions.empty()) exceptions += ", ";
+                    exceptions += "N" + std::to_string(*b.n) + " (строка " + count(b.lineNo) +
+                                  ", инструмент следующей операции T" + std::to_string(recs_[nextCut].activeTool) + ")";
                 }
             }
         }
@@ -589,8 +610,11 @@ void FormatAnalyzer::buildBlockFormat(Report& report) {
                 L.push_back("  Обычно перед N: " + quote(b1.first) + " (" + count(b1.second) + "), после N: " + quote(a1.first) + " (" + count(a1.second) + ").");
             }
             if (withOpTool > 0) {
-                L.push_back("  Связь с инструментом: N равен номеру инструмента следующей операции в " + ofTotal(equalOpTool, withOpTool) + " случаях" +
-                            (exceptions.empty() ? "." : "; исключения: " + joinList(exceptions, ", ") + ". Правило надо подтвердить у технолога."));
+                toolLinkLine = L.size();
+                const auto relation = "  Связь с инструментом: N равен номеру инструмента следующей операции в "
+                                  + ofTotal(equalOpTool, withOpTool) + " случаях";
+                toolLink = relation + ".";
+                L.push_back(relation + (exceptions.empty() ? "." : "; исключения: " + exceptions + ". Правило надо подтвердить у технолога."));
             }
             if (!sparse && values.size() > 2) {
                 std::map<std::string, std::size_t> steps;
@@ -598,10 +622,19 @@ void FormatAnalyzer::buildBlockFormat(Report& report) {
                 const auto s = top(steps, 1).front();
                 L.push_back("  Шаг нумерации: чаще всего " + s.first + " (" + count(s.second) + " раз), первый номер " + std::to_string(values.front()) + ".");
             }
+            for (std::size_t i = 0; i < std::min<std::size_t>(values.size(), 8); ++i)
+                numberingSample.push_back("N" + std::to_string(values[i]));
+            if (values.size() > numberingSample.size())
+                numberingSample.push_back("… N" + std::to_string(values.back()));
         }
     }
 
+    saveFormatFacts(report, "Нумерация N", L, 0, toolLinkLine, toolLink);
+    if (!numberingSample.empty())
+        report.comparisonFormat.back().lines.push_back("Примеры номеров по порядку: " + joinList(numberingSample, ", "));
+
     // word order
+    const std::size_t orderStart = L.size();
     {
         std::map<char, std::pair<double, std::size_t>> rank;     // letter -> (sum of normalized positions, n)
         std::map<std::string, std::size_t> seqs;
@@ -635,7 +668,10 @@ void FormatAnalyzer::buildBlockFormat(Report& report) {
         }
     }
 
+    saveFormatFacts(report, "Порядок слов", L, orderStart);
+
     // spaces between words
+    const std::size_t spacingStart = L.size();
     {
         std::size_t pairs = 0;
         std::size_t glued = 0;
@@ -682,7 +718,10 @@ void FormatAnalyzer::buildBlockFormat(Report& report) {
                     "; самая длинная строка " + count(maxLen) + " символов.");
     }
 
+    saveFormatFacts(report, "Пробелы, регистр и концы строк", L, spacingStart);
+
     // number format per address
+    const std::size_t numberStart = L.size();
     {
         struct Dec {
             std::size_t words = 0, intNoPoint = 0, intPoint = 0, fraction = 0, trailingZero = 0, leadingDot = 0, plus = 0;
@@ -782,6 +821,8 @@ void FormatAnalyzer::buildBlockFormat(Report& report) {
         }
     }
 
+    saveFormatFacts(report, "Знаки после запятой, знаки чисел и точка у целых", L, numberStart);
+
     // arcs
     {
         L.push_back("");
@@ -862,6 +903,7 @@ void FormatAnalyzer::buildModality(Report& report) {
         if (!never.empty()) L.push_back("Модальные коды, которые не повторяются (каждое вхождение - смена значения): " + joinList(never, " ") + ".");
     }
 
+    saveFormatFacts(report, "Модальность", L, 0);
     report.cheatSheet.push_back(std::move(sec));
 }
 
@@ -922,6 +964,7 @@ void FormatAnalyzer::buildComments(Report& report) {
     }
     if (total == 0) {
         L.push_back("Комментариев нет.");
+        saveFormatFacts(report, "Комментарии", L, 0);
         report.cheatSheet.push_back(std::move(sec));
         return;
     }
@@ -946,6 +989,7 @@ void FormatAnalyzer::buildComments(Report& report) {
         L.push_back("    " + k + ": " + count(n) + ", например " + quote(kindExample[k]));
     }
 
+    saveFormatFacts(report, "Комментарии", L, 0);
     report.cheatSheet.push_back(std::move(sec));
 }
 
@@ -1065,6 +1109,7 @@ void FormatAnalyzer::buildMachineSpecific(Report& report) {
     }
     if (infos.empty()) {
         L.push_back("Машинно-специфичных и неизвестных кодов нет.");
+        saveFormatFacts(report, "Машинно-специфичные коды", L, 0);
         report.cheatSheet.push_back(std::move(sec));
         return;
     }
@@ -1087,6 +1132,7 @@ void FormatAnalyzer::buildMachineSpecific(Report& report) {
                     " (" + count(p1.second) + "); после: " + quote(n1.first) + " (" + count(n1.second) + ")");
     }
 
+    saveFormatFacts(report, "Машинно-специфичные коды", L, 0);
     report.cheatSheet.push_back(std::move(sec));
 }
 

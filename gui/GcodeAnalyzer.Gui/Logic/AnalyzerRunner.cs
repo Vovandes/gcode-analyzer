@@ -92,6 +92,36 @@ public class AnalyzerRunner
         }
     }
 
+    public async Task<(RunResult Run, string Report, ComparisonData? Comparison)> CompareAsync(
+        string before, string after, string? machineId, string? extraArguments, string? machineFile = null)
+    {
+        string prefix = Path.Combine(Path.GetTempPath(), $"gca-{Guid.NewGuid():N}");
+        string reportFile = prefix + ".txt";
+        string jsonFile = prefix + ".json";
+        try
+        {
+            var args = AnalyzerArguments.BuildComparison(before, after, reportFile, jsonFile, machineId, extraArguments, machineFile);
+            RunResult run = await RunAsync(args).ConfigureAwait(false);
+            if (run.ExitCode != 0) return (run, "", null);
+            try
+            {
+                using var json = File.OpenRead(jsonFile);
+                var comparison = await ComparisonJson.ReadAsync(json).ConfigureAwait(false);
+                string report = await File.ReadAllTextAsync(reportFile, Encoding.UTF8).ConfigureAwait(false);
+                return (run, report, comparison);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
+            {
+                return (run with { ExitCode = -1, StdErr = $"Не удалось прочитать результат сравнения: {e.Message}" }, "", null);
+            }
+        }
+        finally
+        {
+            if (File.Exists(reportFile)) File.Delete(reportFile);
+            if (File.Exists(jsonFile)) File.Delete(jsonFile);
+        }
+    }
+
     private static async Task<RunResult> ReadAnalysisAsync(RunResult run, string jsonFile)
     {
         if (run.ExitCode != 0) return run;

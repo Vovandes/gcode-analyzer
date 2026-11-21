@@ -6,16 +6,20 @@ namespace GcodeAnalyzer.Gui.Controls;
 /// <summary>GDI-пути кэшируются по T и типу линии; один DrawPath на группу.</summary>
 public sealed class TrajectoryRenderer : IDisposable
 {
-    private readonly List<(int Tool, bool Rapid, bool Violation, GraphicsPath Path)> _paths = [];
+    private readonly List<(int Tool, bool Rapid, bool Violation, bool Previous, GraphicsPath Path)> _paths = [];
     private readonly ProjectedEdge[] _cycles;
     private readonly Dictionary<int, ProjectedEdge[]> _bySegment;
+    private readonly int _previousSegmentCount;
+    public static Color PreviousColor { get; } = Color.Gray;
     public ProjectedEdge[] Edges { get; }
     public ProjectedEdge? FirstEdge(int segment) => _bySegment.TryGetValue(segment, out var edges) && edges.Length > 0 ? edges[0] : null;
 
-    public TrajectoryRenderer(ProjectedEdge[] edges)
+    public TrajectoryRenderer(ProjectedEdge[] edges, int previousSegmentCount = 0)
     {
         Edges = edges;
-        foreach (var group in edges.Where(e => e.A != e.B).GroupBy(e => (e.Tool, e.Rapid, e.LimitViolation)))
+        _previousSegmentCount = previousSegmentCount;
+        foreach (var group in edges.Where(e => e.A != e.B)
+            .GroupBy(e => (e.Tool, e.Rapid, e.LimitViolation, Previous: e.SegmentIndex < previousSegmentCount)))
         {
             var points = new List<PointF>();
             var types = new List<byte>();
@@ -24,7 +28,8 @@ public sealed class TrajectoryRenderer : IDisposable
                 points.Add(new((float)edge.A.X, (float)edge.A.Y)); types.Add((byte)PathPointType.Start);
                 points.Add(new((float)edge.B.X, (float)edge.B.Y)); types.Add((byte)PathPointType.Line);
             }
-            _paths.Add((group.Key.Tool, group.Key.Rapid, group.Key.LimitViolation, new GraphicsPath(points.ToArray(), types.ToArray())));
+            _paths.Add((group.Key.Tool, group.Key.Rapid, group.Key.LimitViolation, group.Key.Previous,
+                new GraphicsPath(points.ToArray(), types.ToArray())));
         }
         _cycles = edges.Where(e => e.Cycle).ToArray();
         _bySegment = edges.GroupBy(e => e.SegmentIndex).ToDictionary(g => g.Key, g => g.ToArray());
@@ -40,8 +45,9 @@ public sealed class TrajectoryRenderer : IDisposable
         foreach (var item in _paths)
         {
             if (hidden.Contains(item.Tool)) continue;
-            using var pen = new Pen(ToolPalette.ForTool(item.Tool), (float)(1.3 / transform.Scale));
-            if (item.Violation)
+            using var pen = new Pen(item.Previous ? PreviousColor : ToolPalette.ForTool(item.Tool),
+                (float)((item.Previous ? 2.8 : 1.3) / transform.Scale));
+            if (item.Violation && !item.Previous)
             {
                 using var outline = new Pen(SeverityStyle.Foreground("error"), (float)(4.5 / transform.Scale));
                 graphics.DrawPath(outline, item.Path);
@@ -54,7 +60,9 @@ public sealed class TrajectoryRenderer : IDisposable
         {
             if (hidden.Contains(e.Tool)) continue;
             Point2 p = transform.ToScreen(e.A);
-            using var pen = new Pen(e.LimitViolation ? SeverityStyle.Foreground("error") : ToolPalette.ForTool(e.Tool), e.LimitViolation ? 3 : 1.3f);
+            bool previous = e.SegmentIndex < _previousSegmentCount;
+            var color = previous ? PreviousColor : e.LimitViolation ? SeverityStyle.Foreground("error") : ToolPalette.ForTool(e.Tool);
+            using var pen = new Pen(color, previous || e.LimitViolation ? 3 : 1.3f);
             graphics.DrawEllipse(pen, (float)p.X - 3, (float)p.Y - 3, 6, 6);
         }
     }
@@ -62,8 +70,9 @@ public sealed class TrajectoryRenderer : IDisposable
     public void DrawSelected(Graphics graphics, ViewTransform transform, int segment, ISet<int> hidden)
     {
         if (!_bySegment.TryGetValue(segment, out var edges) || edges.Length == 0 || hidden.Contains(edges[0].Tool)) return;
-        using var outline = new Pen(edges[0].LimitViolation ? SeverityStyle.Foreground("error") : Color.Black, 5);
-        using var highlight = new Pen(Color.Magenta, 3);
+        bool previous = segment < _previousSegmentCount;
+        using var outline = new Pen(!previous && edges[0].LimitViolation ? SeverityStyle.Foreground("error") : Color.Black, 5);
+        using var highlight = new Pen(previous ? Color.Gainsboro : Color.Magenta, 3);
         foreach (var edge in edges)
         {
             Point2 a = transform.ToScreen(edge.A), b = transform.ToScreen(edge.B);

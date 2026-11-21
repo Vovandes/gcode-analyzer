@@ -1,6 +1,7 @@
 #include "gca/cli.hpp"
 
 #include "gca/analyzer.hpp"
+#include "gca/comparison.hpp"
 #include "gca/dialect.hpp"
 #include "gca/lexer.hpp"
 #include "gca/options.hpp"
@@ -8,6 +9,7 @@
 #include "gca/json_report.hpp"
 #include "gca/machine_profile.hpp"
 #include <algorithm>
+#include <cmath>
 
 #include <filesystem>
 #include <fstream>
@@ -21,14 +23,19 @@ namespace {
 constexpr const char kUtf8Bom[] = "\xEF\xBB\xBF";
 
 /// Writes text to the file (UTF-8, optional BOM). Returns an exit code; messages go to `err`.
-int writeFile(const std::filesystem::path& path, const std::string& text, bool bom, std::ostream& err) {
+template<class Writer>
+int writeOutputFile(const std::filesystem::path& path, bool bom, std::ostream& err, Writer write) {
     std::ofstream file(path, std::ios::binary);
     if (!file) { err << "Не удаётся открыть файл для записи: " << pathToUtf8(path) << '\n'; return kExitIoError; }
     if (bom) file.write(kUtf8Bom, 3);
-    file << text;
+    write(file);
     file.flush();
     if (!file) { err << "Не удаётся записать файл: " << pathToUtf8(path) << '\n'; return kExitIoError; }
     return kExitOk;
+}
+
+int writeFile(const std::filesystem::path& path, const std::string& text, bool bom, std::ostream& err) {
+    return writeOutputFile(path, bom, err, [&](std::ostream& file) { file << text; });
 }
 
 /// stdout, or the --out file with a short message on stdout.
@@ -63,6 +70,8 @@ int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
     options.machinesDirectory = machinesDirectory;
     OutputOptions output;
     std::optional<std::filesystem::path> input;
+    std::optional<std::filesystem::path> comparisonInput;
+    std::optional<double> tolerance;
     std::optional<std::filesystem::path> jsonFile;
     bool bom = false;
     bool wantHelp = false, wantVersion = false, wantOptions = false, wantMachines = false;
@@ -79,6 +88,25 @@ int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
         if (a == "--list-options") { wantOptions = true; continue; }
         if (a == "--list-machines") { wantMachines = true; continue; }
         if (a == "--bom") { bom = true; continue; }
+        if (a == "--compare") {
+            if (input || args.size() - i < 3 || args[i + 1].empty() || args[i + 2].empty() ||
+                args[i + 1].starts_with('-') || args[i + 2].starts_with('-')) {
+                err << "Использование: --compare <старая.nc> <новая.nc> без отдельного входного файла\n";
+                return kExitBadArguments;
+            }
+            input = pathFromUtf8(args[++i]);
+            comparisonInput = pathFromUtf8(args[++i]);
+            continue;
+        }
+        if (a == "--tolerance") {
+            if (!needValue()) return kExitBadArguments;
+            tolerance = parseNumber(args[++i]);
+            if (!tolerance || !std::isfinite(*tolerance) || *tolerance < 0) {
+                err << "--tolerance должно быть конечным неотрицательным числом\n";
+                return kExitBadArguments;
+            }
+            continue;
+        }
         if (a == "--json") {
             if (!needValue()) return kExitBadArguments;
             jsonFile = pathFromUtf8(args[++i]);
@@ -142,6 +170,11 @@ int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
     if (wantVersion) return emit("gcode-analyzer " + version() + '\n', output.outFile, bom, "Версия записана", out, err);
     if (wantOptions) return emit(optionsListText(), output.outFile, bom, "Список опций записан", out, err);
 
+    if (tolerance && !comparisonInput) {
+        err << "--tolerance используется вместе с --compare\n";
+        return kExitBadArguments;
+    }
+
     const IDialect* dialect = findDialect(options.dialect == "auto" ? "fanuc-mill" : options.dialect);
     if (dialect == nullptr) {
         err << "Неизвестный диалект: " << options.dialect << " (доступно:";
@@ -176,10 +209,31 @@ int runCli(const std::vector<std::string>& args, std::ostream& out, std::ostream
         err << "Путь --json должен отличаться от входного файла и --out\n";
         return kExitBadArguments;
     }
+    if (comparisonInput &&
+        ((output.outFile && (sameFile(*output.outFile, *input) || sameFile(*output.outFile, *comparisonInput))) ||
+         (jsonFile && sameFile(*jsonFile, *comparisonInput)))) {
+        err << "Пути --out и --json должны отличаться от обеих сравниваемых УП\n";
+        return kExitBadArguments;
+    }
 
     Report report;
     try {
         report = analyzeFileReport(*input, options);
+        if (comparisonInput) {
+            const Report after = analyzeFileReport(*comparisonInput, options);
+            const auto comparison = compareReports(report, after, tolerance.value_or(kDefaultComparisonTolerance));
+            if (jsonFile) {
+                const int code = writeOutputFile(*jsonFile, false, err, [&](std::ostream& file) {
+                    writeJsonComparison(report, after, comparison, file);
+                });
+                if (code != kExitOk) return code;
+            }
+            const auto writeText = [&](std::ostream& stream) { writeTextComparison(report, after, comparison, stream); };
+            if (!output.outFile) { writeText(out); return kExitOk; }
+            const int code = writeOutputFile(*output.outFile, bom, err, writeText);
+            if (code == kExitOk) out << "Отчёт записан в " << pathToUtf8(*output.outFile) << '\n';
+            return code;
+        }
     } catch (const IoError& e) {
         err << "Ошибка ввода-вывода: " << e.what() << '\n';
         return kExitIoError;

@@ -16,6 +16,21 @@ public static class AnalyzerArguments
         string? jsonFile = null, string? machineFile = null)
     {
         var args = new List<string> { inputFile };
+        AddOptions(args, outFile, machineId, bom, extraArguments, jsonFile, machineFile);
+        return args;
+    }
+
+    public static List<string> BuildComparison(string before, string after, string outFile, string jsonFile,
+        string? machineId, string? extraArguments, string? machineFile = null)
+    {
+        var args = new List<string> { "--compare", before, after };
+        AddOptions(args, outFile, machineId, false, extraArguments, jsonFile, machineFile);
+        return args;
+    }
+
+    private static void AddOptions(List<string> args, string outFile, string? machineId, bool bom, string? extraArguments,
+        string? jsonFile, string? machineFile)
+    {
         args.AddRange(ArgumentSplitter.Split(extraArguments));
 
         if (!string.IsNullOrEmpty(machineId) && machineId != AutoMachine)
@@ -37,6 +52,5 @@ public static class AnalyzerArguments
             args.Add("--json");
             args.Add(jsonFile);
         }
-        return args;
     }
 }

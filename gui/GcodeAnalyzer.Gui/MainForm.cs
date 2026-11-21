@@ -10,6 +10,7 @@ public class MainForm : Form
 
     // Элементы управления
     private readonly Button _openButton = new() { Text = "Открыть…", AutoSize = true };
+    private readonly Button _compareButton = new() { Text = "Сравнить…", AutoSize = true };
     private readonly Label _fileLabel = new() { Text = "Файл не выбран", AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly RadioButton _showRadio = new() { Text = "Показать в окне", AutoSize = true, Checked = true };
     private readonly RadioButton _saveRadio = new() { Text = "Сохранить в .txt", AutoSize = true };
@@ -44,6 +45,8 @@ public class MainForm : Form
     private readonly TabPage _trajectoryTab = new("Траектория и программа") { Name = "trajectory" };
     private readonly TabPage _reportTab = new("Отчёт") { Name = "report" };
     private readonly TrajectoryWorkspace _workspace;
+    private TabPage? _comparisonTab;
+    private ComparisonWorkspace? _comparisonWorkspace;
     private readonly SplitContainer _reportSplit = new() { Dock = DockStyle.Fill, Size = new(1100, 500), SplitterDistance = 230 };
 
     // Состояние
@@ -66,6 +69,7 @@ public class MainForm : Form
         _workspace.StatusChanged += text => _status.Text = text;
 
         _openButton.Click += (_, _) => OpenFileDialogAndRun();
+        _compareButton.Click += async (_, _) => await CompareAsync();
         _runButton.Click += async (_, _) => await RunAnalysisAsync();
         _saveAsButton.Click += async (_, _) => await SaveAsTxtAsync();
         _helpButton.Click += async (_, _) => await ShowHelpAsync();
@@ -105,16 +109,19 @@ public class MainForm : Form
 
     // ---------- Разметка окна ----------
 
-    private void AddAnalysisTabs() =>
+    private void AddAnalysisTabs()
+    {
         _tabs.TabPages.AddRange(_settings.ReportFirst
             ? [_reportTab, _trajectoryTab, _limitsTab, _toolsTab]
             : [_trajectoryTab, _reportTab, _limitsTab, _toolsTab]);
+        if (_comparisonTab is not null) _tabs.TabPages.Add(_comparisonTab);
+    }
 
     private void BuildLayout()
     {
         // Верхняя панель: две строки элементов
         var row1 = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = false, Padding = new Padding(6, 6, 6, 0) };
-        row1.Controls.AddRange(new Control[] { _openButton, _fileLabel });
+        row1.Controls.AddRange(new Control[] { _openButton, _compareButton, _fileLabel });
 
         var row2 = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Padding = new Padding(6, 2, 6, 0) };
         row2.Controls.AddRange(new Control[]
@@ -148,6 +155,7 @@ public class MainForm : Form
         _toolsTab.Controls.Add(_toolsView);
         AddAnalysisTabs();
         _tabs.SelectedTab = _tabs.TabPages[_settings.ActiveTab] ?? _trajectoryTab;
+        _tabs.SelectedIndexChanged += (_, _) => UpdateSaveAsButton();
         var tabsMenu = new ContextMenuStrip();
         tabsMenu.Items.Add("Поменять вкладки местами", null, (_, _) =>
         {
@@ -235,12 +243,19 @@ public class MainForm : Form
 
     private void OpenFileDialogAndRun()
     {
+        string? path = AskProgramPath("Открыть управляющую программу", _settings.LastFolder);
+        if (path is not null) SetInputFileAndRun(path);
+    }
+
+    private string? AskProgramPath(string title, string? folder)
+    {
         using var dialog = new OpenFileDialog
         {
+            Title = title,
             Filter = "Управляющие программы|*.nc;*.tap;*.txt|Все файлы|*.*",
-            InitialDirectory = Directory.Exists(_settings.LastFolder) ? _settings.LastFolder : "",
+            InitialDirectory = Directory.Exists(folder) ? folder! : "",
         };
-        if (dialog.ShowDialog(this) == DialogResult.OK) SetInputFileAndRun(dialog.FileName);
+        return dialog.ShowDialog(this) == DialogResult.OK ? dialog.FileName : null;
     }
 
     // Drag-and-drop: DragEnter говорит, принимаем ли мы перетаскиваемое
@@ -259,6 +274,8 @@ public class MainForm : Form
     private void SetInputFileAndRun(string path)
     {
         if (_busy) return;
+        if (_tabs.SelectedTab == _comparisonTab)
+            _tabs.SelectedTab = _settings.ReportFirst ? _reportTab : _trajectoryTab;
         _inputFile = path;
         _fileLabel.Text = path;
         _settings.LastFolder = Path.GetDirectoryName(path) ?? "";
@@ -272,6 +289,56 @@ public class MainForm : Form
     }
 
     // ---------- Анализ ----------
+
+    private async Task CompareAsync()
+    {
+        if (_busy) return;
+        string? before = AskProgramPath("Выберите старую УП", _settings.LastFolder);
+        if (before is null) return;
+        string? after = AskProgramPath("Выберите новую УП", Path.GetDirectoryName(before));
+        if (after is null) return;
+        AnalyzerRunner? runner = CreateRunner(showMessage: true);
+        if (runner is null) return;
+
+        SetBusy(true);
+        _status.Text = "Сравнение…";
+        try
+        {
+            var (run, report, comparison) = await runner.CompareAsync(
+                before, after, SelectedMachineId, _extraBox.Text, SelectedMachineFile);
+            if (IsDisposed) return;
+            ShowRunResult(run, "Сравнение готово");
+            if (comparison is null) return;
+            var beforeText = File.ReadAllLinesAsync(before);
+            var afterText = File.ReadAllLinesAsync(after);
+            await Task.WhenAll(beforeText, afterText);
+            var prepared = await Task.Run(() => (
+                Overlay: TrajectoryOverlay.Build(comparison.Before.Segments, comparison.After.Segments),
+                Before: LineClassifier.Classify(beforeText.Result, comparison.Before.Segments,
+                    comparison.Before.Warnings, comparison.Before.File.Dialect),
+                After: LineClassifier.Classify(afterText.Result, comparison.After.Segments,
+                    comparison.After.Warnings, comparison.After.File.Dialect)));
+            if (IsDisposed) return;
+            if (_comparisonWorkspace is null)
+            {
+                _comparisonWorkspace = new ComparisonWorkspace { Dock = DockStyle.Fill };
+                _comparisonTab = new TabPage("Сравнение") { Name = "comparison" };
+                _comparisonTab.Controls.Add(_comparisonWorkspace);
+                _tabs.TabPages.Add(_comparisonTab);
+            }
+            _comparisonWorkspace.SetComparison(comparison, report, prepared.Overlay, prepared.Before, prepared.After);
+            _tabs.SelectedTab = _comparisonTab;
+            _settings.LastFolder = Path.GetDirectoryName(after) ?? "";
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            if (!IsDisposed) ShowError($"Не удалось прочитать программу или результат сравнения: {e.Message}");
+        }
+        finally
+        {
+            if (!IsDisposed) SetBusy(false);
+        }
+    }
 
     private async Task RunAnalysisAsync()
     {
@@ -380,6 +447,8 @@ public class MainForm : Form
                 Presentation: presentation, Rtf: ReportRtf.Render(presentation.Lines));
         });
         if (IsDisposed) return;
+        if (_tabs.SelectedTab == _comparisonTab)
+            _tabs.SelectedTab = _settings.ReportFirst ? _reportTab : _trajectoryTab;
         _workspace.SetAnalysis(prepared.Scene, prepared.Lines, analysis.Warnings);
         _limitsView.ShowChecks(analysis.Limits);
         _toolsView.ShowTools(analysis);
@@ -395,7 +464,7 @@ public class MainForm : Form
         _sectionList.Items.Clear();
         foreach (ReportSection s in _sections) _sectionList.Items.Add(s.Title);
         _machineLabel.Text = "Станок: " + (machine.Length > 0 ? machine : "—");
-        _saveAsButton.Enabled = true;
+        UpdateSaveAsButton();
     }
 
     // Щелчок по разделу: ставим курсор на заголовок и прокручиваем к нему
@@ -419,12 +488,15 @@ public class MainForm : Form
     private void SetBusy(bool busy)
     {
         _busy = busy;
-        foreach (Control c in new Control[] { _openButton, _runButton, _saveAsButton, _helpButton, _exeButton, _profileButton, _machineCombo })
+        foreach (Control c in new Control[] { _openButton, _compareButton, _runButton, _helpButton, _exeButton, _profileButton, _machineCombo })
             c.Enabled = !busy;
-        if (!busy) _saveAsButton.Enabled = _reportBox.TextLength > 0;
+        UpdateSaveAsButton();
         if (busy) { _status.Text = "Анализ…"; _errorBox.Visible = false; }
         UseWaitCursor = busy;
     }
+
+    private void UpdateSaveAsButton() =>
+        _saveAsButton.Enabled = !_busy && _tabs.SelectedTab != _comparisonTab && _reportBox.TextLength > 0;
 
     private void SaveSettings()
     {

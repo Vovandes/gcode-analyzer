@@ -13,6 +13,7 @@ namespace gca {
 /// Nothing is hardcoded: every statement is derived from the analyzed text.
 class FormatAnalyzer final : public IAnalyzer {
 public:
+    explicit FormatAnalyzer(std::size_t blockCount = 0) { recs_.reserve(blockCount); }
     void onBlock(const BlockContext& ctx) override;
     void onSegment(const Segment& seg, const BlockContext& ctx) override;
     void onToolChange(const ToolEvent& ev, const BlockContext& ctx) override;
@@ -22,7 +23,7 @@ private:
     enum class Zone { Header, Setup, Cut, Teardown, End };
 
     struct Rec {
-        Block block;
+        const Block& block;             ///< immutable Program block, alive through finish()
         bool cut = false;               ///< cutting move (G1/G2/G3/cycle) in this block
         bool hasM6 = false;
         bool preselect = false;

@@ -28,6 +28,7 @@
 - поле аргументов (например, `--rapid 12000`) и кнопка «Справка по аргументам»;
 - выбор профиля станка из списка (по умолчанию — автоопределение);
 - «Открыть профиль…» выбирает INI-файл; вкладка «Пределы станка» показывает проверки, нарушения выделены красным в таблице, программе и обводке траектории;
+- «Сравнить…» открывает старую и новую УП. Во вкладке «Сравнение» доступны сводка, наложение 2D и отчёт. Щелчок по расхождению выделяет соответствующие строки обеих программ;
 - `gcode-analyzer.exe` должен лежать рядом с окном.
 
 ## Консоль
@@ -37,6 +38,7 @@ gcode-analyzer.exe program.nc                       :: отчёт в консо�
 gcode-analyzer.exe program.nc --out report.txt      :: отчёт в файл (UTF-8)
 gcode-analyzer.exe program.nc --out report.txt --bom :: с BOM для Блокнота
 gcode-analyzer.exe program.nc --out report.txt --json analysis.json :: TXT и JSON за один анализ
+gcode-analyzer.exe --compare old.nc new.nc --tolerance 0.01 --out comparison.txt --json comparison.json
 gcode-analyzer.exe program.nc --rapid 15000         :: скорость G0 для оценки времени, мм/мин (по умолчанию 10000)
 gcode-analyzer.exe program.nc --machine auto        :: профиль станка (auto — по комментарию «Generated for ...»)
 gcode-analyzer.exe program.nc --machine-file machines\my-machine.ini --wcs-offset G54=X0Y0Z0
@@ -48,6 +50,8 @@ gcode-analyzer.exe --help | --version | --list-options
 Коды возврата: 0 — успех, 1 — ошибка ввода-вывода, 2 — ошибка аргументов.
 
 `--json` пишет UTF-8 без BOM независимо от `--bom`; описание полей — [docs/JSON.md](docs/JSON.md). Текстовый отчёт сохраняет прежний формат.
+
+При сравнении ключ `--tolerance` задаёт допустимое расстояние между конечными точками XYZ в мм. По умолчанию используется 0,01 мм. В пределах каждого общего инструмента точки выравниваются по порядку с пропусками. В отчёте приведены первые 20 расхождений на инструмент и их общее число.
 
 Машинно-специфичные коды берутся из профиля станка: Sky Master VL1100A (`M15` — дополнительная подача СОЖ), Bridgeport 1300/480 (`M53` — СОЖ через шпиндель).
 

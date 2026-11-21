@@ -1,9 +1,11 @@
 #include "gca/json_report.hpp"
 #include "gca/analyzers/warnings.hpp"
+#include "gca/comparison.hpp"
 #include "gca/motion.hpp"
 
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <locale>
 #include <sstream>
 #include <string_view>
@@ -196,6 +198,37 @@ void tool(std::ostream& out, const ToolReport& t) {
     out << "}}";
 }
 
+void fileInfo(std::ostream& out, const FileInfo& f) {
+    out << "{\"name\":"; string(out, f.fileName);
+    out << ",\"lines\":" << f.lines << ",\"blocks\":" << f.blocks << ",\"dialect\":"; string(out, f.dialectId);
+    out << ",\"machine\":"; string(out, f.machineName);
+    out << ",\"machineProfile\":"; string(out, f.machineProfile);
+    out << ",\"rapidFeed\":"; number(out, f.rapidFeed); out << '}';
+}
+
+void segments(std::ostream& out, const Report& report) {
+    array(out, report.segments, [&report](std::ostream& o, const Segment& s) { segment(o, s, report.file.rapidFeed); });
+}
+
+void warning(std::ostream& out, const Warning& w) {
+    out << "{\"line\":" << w.line << ",\"code\":"; string(out, w.code);
+    out << ",\"severity\":"; string(out, severityName(warningSeverity(w.code)));
+    out << ",\"message\":"; string(out, w.message);
+    out << ",\"text\":"; string(out, w.text); out << '}';
+}
+
+void comparisonProgram(std::ostream& out, const Report& report) {
+    out << "{\"file\":"; fileInfo(out, report.file);
+    out << ",\"segments\":"; segments(out, report);
+    out << ",\"warnings\":"; array(out, report.warnings, warning);
+    out << '}';
+}
+
+void sourceLine(std::ostream& out, std::optional<std::size_t> line) {
+    if (line) out << *line;
+    else out << "null";
+}
+
 } // namespace
 
 void writeJsonReport(const Report& report, std::ostream& output) {
@@ -203,20 +236,9 @@ void writeJsonReport(const Report& report, std::ostream& output) {
     std::ostringstream out;
     out.imbue(std::locale::classic());
     out << std::fixed << std::setprecision(4);
-    const auto& f = report.file;
-    out << "{\n  \"schema\":1,\n  \"file\":{\"name\":"; string(out, f.fileName);
-    out << ",\"lines\":" << f.lines << ",\"blocks\":" << f.blocks << ",\"dialect\":"; string(out, f.dialectId);
-    out << ",\"machine\":"; string(out, f.machineName);
-    out << ",\"machineProfile\":"; string(out, f.machineProfile);
-    out << ",\"rapidFeed\":"; number(out, f.rapidFeed); out << "},\n  \"segments\":";
-    array(out, report.segments, [&f](std::ostream& o, const Segment& s) { segment(o, s, f.rapidFeed); });
-    out << ",\n  \"warnings\":";
-    array(out, report.warnings, [](std::ostream& o, const Warning& w) {
-        o << "{\"line\":" << w.line << ",\"code\":"; string(o, w.code);
-        o << ",\"severity\":"; string(o, severityName(warningSeverity(w.code)));
-        o << ",\"message\":"; string(o, w.message);
-        o << ",\"text\":"; string(o, w.text); o << '}';
-    });
+    out << "{\n  \"schema\":1,\n  \"file\":"; fileInfo(out, report.file);
+    out << ",\n  \"segments\":"; segments(out, report);
+    out << ",\n  \"warnings\":"; array(out, report.warnings, warning);
     out << ",\n  \"tools\":"; array(out, report.tools, tool);
     out << ",\n  \"toolTotals\":{\"detail\":"; toolMetrics(out, report.toolTotals);
     out << ",\"box\":"; box(out, report.toolTotalBox); out << '}';
@@ -254,6 +276,54 @@ std::string renderJsonReport(const Report& report) {
     std::ostringstream out;
     writeJsonReport(report, out);
     return out.str();
+}
+
+void writeJsonComparison(const Report& before, const Report& after, const ComparisonReport& comparison,
+                         std::ostream& output) {
+    std::ostream out(output.rdbuf());
+    out.imbue(std::locale::classic());
+    out << std::setprecision(std::numeric_limits<double>::max_digits10);
+    out << "{\n  \"schema\":1,\n  \"kind\":\"comparison\",\n  \"tolerance\":";
+    number(out, comparison.tolerance);
+    // Stream both programs at full precision, including with a sub-micron tolerance.
+    out << ",\n  \"before\":"; comparisonProgram(out, before);
+    out << ",\n  \"after\":"; comparisonProgram(out, after);
+    out << ",\n  \"summary\":";
+    array(out, comparison.summary, [](std::ostream& o, const ComparisonRow& row) {
+        o << "{\"label\":"; string(o, row.label);
+        o << ",\"before\":"; string(o, row.before);
+        o << ",\"after\":"; string(o, row.after);
+        o << ",\"difference\":"; string(o, row.difference);
+        o << ",\"trend\":"; string(o, row.trend == ComparisonTrend::Improved ? "improved" :
+            row.trend == ComparisonTrend::Worsened ? "worsened" : "neutral");
+        o << '}';
+    });
+    out << ",\n  \"trajectory\":";
+    array(out, comparison.trajectory, [](std::ostream& o, const ToolComparison& tool) {
+        o << "{\"tool\":"; string(o, tool.tool);
+        o << ",\"presence\":"; string(o, tool.presence == ToolPresence::Added ? "added" :
+            tool.presence == ToolPresence::Removed ? "removed" : "both");
+        o << ",\"oldPoints\":" << tool.oldPoints << ",\"newPoints\":" << tool.newPoints
+            << ",\"differenceCount\":" << tool.differenceCount << ",\"differences\":";
+        array(o, tool.differences, [](std::ostream& item, const PointDifference& d) {
+            item << "{\"kind\":"; string(item, d.kind == PointChange::Modified ? "modified" :
+                d.kind == PointChange::Inserted ? "inserted" : "deleted");
+            item << ",\"oldLine\":"; sourceLine(item, d.oldLine);
+            item << ",\"newLine\":"; sourceLine(item, d.newLine); item << '}';
+        });
+        o << '}';
+    });
+    out << ",\n  \"format\":";
+    array(out, comparison.format, [](std::ostream& o, const FormatDifference& group) {
+        o << "{\"label\":"; string(o, group.label);
+        o << ",\"before\":"; array(o, group.before, string);
+        o << ",\"after\":"; array(o, group.after, string);
+        o << '}';
+    });
+    out << ",\n  \"newWarnings\":"; array(out, comparison.newWarnings, warning);
+    out << ",\n  \"resolvedWarnings\":"; array(out, comparison.resolvedWarnings, warning);
+    out << "\n}\n";
+    output.setstate(out.rdstate());
 }
 
 } // namespace gca
